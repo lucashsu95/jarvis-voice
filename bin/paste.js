@@ -1,5 +1,6 @@
 // 把一段字貼進目前游標所在的輸入框：確認游標在輸入框 → 暫存剪貼簿 → 放字 → 送 Cmd+V → 還原剪貼簿。
 // 用法：osascript -l JavaScript paste.js <字> [--pid <前景 app 的 pid>] [--dry] [--ask]
+//       osascript -l JavaScript paste.js '' --check   只查有沒有「輔助使用」權限
 //   --pid  檢查那個 app 目前的焦點是不是文字欄位；明確不是（例如在看網頁本身）就不貼，回 not-text-field:<角色>
 //   --dry  不送按鍵，只做剪貼簿暫存與還原（測試用）
 //   --ask  沒有「輔助使用」權限時跳出系統的詢問（只在第一次沒權限時帶）
@@ -76,6 +77,7 @@ function pressCommandV() {
 function run(argv) {
   const text = argv[0] || '';
   const dry = argv.includes('--dry');
+  if (argv.includes('--check')) return $.AXIsProcessTrusted() ? 'trusted' : 'no-accessibility'; // 只查權限
   const pidAt = argv.indexOf('--pid');
   const pid = pidAt >= 0 ? Number(argv[pidAt + 1]) || 0 : 0;
   if (!dry && !$.AXIsProcessTrusted()) {

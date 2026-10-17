@@ -137,6 +137,7 @@ function startEngine() {
         replacements: config.replacements,
         alreadyTraditional: config.engine === 'parallelsandbox',
       });
+      log(`轉寫結果：${text || '（空的）'}`);
       if (isSpeech(text)) enqueuePaste(text);
     },
   };
@@ -222,8 +223,20 @@ const queueTurn = () => {
   engine.commit();
 };
 
+// 診斷：每 15 秒記一次這段時間的最大音量，看麥克風到底有沒有收到聲音（全 0＝沒權限或被別的程式占住）
+let levelPeak = 0;
+let levelSince = Date.now();
+function trackLevel(samples) {
+  for (const v of samples) { const a = Math.abs(v) / 32768; if (a > levelPeak) levelPeak = a; }
+  if (Date.now() - levelSince < 15_000) return;
+  log(`麥克風 15 秒內最大音量 ${levelPeak.toFixed(3)}（人聲門檻 0.055）${levelPeak === 0 ? '：完全沒聲音，多半是沒有麥克風權限' : ''}`);
+  levelPeak = 0;
+  levelSince = Date.now();
+}
+
 function takeBatch(chunk) {
   const samples = new Int16Array(chunk.buffer, chunk.byteOffset, chunk.length / 2);
+  trackLevel(samples);
   const startMs = sentSamples / 24;
   sentSamples += samples.length;
   const wasSpeaking = detector.speaking;
@@ -240,7 +253,10 @@ function takeBatch(chunk) {
   }
   if (detector.speaking) lastSpeechAt = Date.now();
   if (detector.speaking !== wasSpeaking && state === 'listening') hudShow(detector.speaking ? 'hearing' : 'listening');
-  if (turn) queueTurn();
+  if (turn) {
+    log(`切出一句 ${((turn.endMs - turn.startMs) / 1000).toFixed(1)} 秒，送去轉寫`);
+    queueTurn();
+  }
 }
 
 // 停麥克風時把講到一半的那句送出去
@@ -259,6 +275,9 @@ function finishTurn() {
 
 let captureEnded = null;
 function startCapture() {
+  log('開麥克風');
+  levelPeak = 0;
+  levelSince = Date.now();
   detector = new AudioTurnDetector();
   preRoll = [];
   carry = Buffer.alloc(0);
@@ -325,7 +344,7 @@ async function drainPaste() {
       const item = pasteQueue[0];
       if (Date.now() - item.at > HOLD_MS) {
         pasteQueue.shift();
-        log('目標 app 一直不在最前面，丟掉一句：', item.text);
+        log('一分鐘內都貼不進去（目標 app 不在最前面，或沒有輔助使用權限），丟掉一句：', item.text);
         continue;
       }
       const front = always ? { bundle: '', pid: 0 } : await frontApp();
@@ -341,9 +360,12 @@ async function drainPaste() {
       if (!askedAccessibility) args.push('--ask');
       const out = (await exec('/usr/bin/osascript', args, 5000)).trim();
       if (out === 'no-accessibility') {
+        // 放回佇列：權限一開就貼；等超過一分鐘才丟（選單「複製上一句」還拿得到）
+        if (!askedAccessibility) log('貼不進去：「語音輸入」還沒有輔助使用權限，開了就會補貼：', item.text);
         askedAccessibility = true;
+        pasteQueue.unshift(item);
         setError('沒有「輔助使用」權限，字貼不進去：系統設定 → 隱私權與安全性 → 輔助使用，打開「語音輸入」');
-        continue;
+        break;
       }
       if (out.startsWith('not-text-field')) {
         log('游標不在輸入框，這句沒貼：', item.text, `（${out.slice(15)}）`);
@@ -353,6 +375,7 @@ async function drainPaste() {
       }
       if (out !== 'ok') log('貼上沒成功：', out || '（osascript 沒有回應）');
       else hudFlash();
+      log(out === 'ok' ? `已貼上：${text}` : `貼上結果：${out}`);
       emit({ type: 'pasted', text });
     }
   } finally {
@@ -404,6 +427,8 @@ async function main() {
   }
   if (appMode) {
     try { if (statSync(LOG).size > 1_000_000) writeFileSync(LOG, ''); } catch { /* 還沒有 log */ }
+    const access = (await exec('/usr/bin/osascript', ['-l', 'JavaScript', join(HERE, 'paste.js'), '', '--check'], 5000)).trim();
+    log(`輔助使用權限：${access === 'trusted' ? '有' : '沒有（字貼不進去：系統設定 → 隱私權與安全性 → 輔助使用，打開「語音輸入」）'}`);
   }
   process.on('SIGTERM', () => shutdown(0));
   process.on('SIGINT', () => shutdown(0));
