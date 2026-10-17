@@ -47,6 +47,9 @@ test('AX 小幫手：讀上下文、找輸入框、對焦、列元件；不在�
     assert.equal(ctx.window, 'JarvisVoice 測試視窗');
     assert.ok(await sendToBack(pid), '測試視窗要在背景');
     assert.deepEqual([ctx.field.role, ctx.field.label, ctx.field.before, ctx.field.after], ['AXTextArea', '訊息', '今天的待辦：', '']);
+    const withScreen = await ax.call('context', { pid, screen: 1500 });
+    assert.match(withScreen.screen, /畫面文字：我們在討論 JarvisVoice/);
+    assert.doesNotMatch(withScreen.screen, /今天的待辦/); // 輸入框裡的字不算
 
     const found = await ax.call('targets', { pid });
     const byLabel = Object.fromEntries(found.candidates.map((c) => [c.label, c]));

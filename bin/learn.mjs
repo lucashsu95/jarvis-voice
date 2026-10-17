@@ -1,16 +1,12 @@
 // 自動學個人字典（Typeless 的「自動加詞」）：AI 整理後的字貼進去，接下來 30 秒每 3 秒讀一次那個輸入框，
-// 看使用者有沒有自己改字。有改到某些字（不是只在後面多打），請 AI 挑出被改正的專有名詞，加進詞彙檔，
+// 看使用者有沒有自己改字。有改到某些字（不是只在後面多打），請 AI 挑出被改正的專有名詞，交給詞彙表自動更新加進去，
 // 下次轉寫和整理都會照這個寫法。
 
-import { appendFileSync, existsSync, readFileSync } from 'node:fs';
-import { homedir } from 'node:os';
 import { ask } from './editor.mjs';
-import { readVocabulary } from './config.mjs';
 
 const WATCH_MS = 30_000;
 const POLL_MS = 3_000;
 const ANCHOR = 20;
-const HEADER = '# 自動學到（貼上後你自己改過的詞，不要的直接刪掉）';
 
 // 從輸入框現在的字裡，找出原本貼進去那段現在長怎樣：用貼上時游標前後的字當錨點
 export function extractEdited(value, before = '', after = '') {
@@ -53,19 +49,6 @@ export function replacedChunks(a, b) {
   return chunks;
 }
 
-// 加進詞彙檔（已經有的不重複加）
-export function appendVocabulary(file, terms) {
-  const path = file.replace(/^~(?=\/)/, homedir());
-  const have = new Set(readVocabulary(path).map((w) => w.toLowerCase()));
-  const fresh = [...new Set(terms.map((t) => t.trim()).filter((t) => t && t.length <= 40 && !/[<>\n]/.test(t)))]
-    .filter((t) => !have.has(t.toLowerCase()));
-  if (!fresh.length) return [];
-  const text = existsSync(path) ? readFileSync(path, 'utf8') : '';
-  const lead = text && !text.endsWith('\n') ? '\n' : '';
-  appendFileSync(path, `${lead}${text.includes(HEADER) ? '' : `\n${HEADER}\n`}${fresh.join('\n')}\n`);
-  return fresh;
-}
-
 const LEARN_PROMPT = `使用者用語音輸入貼上了 <pasted> 這段字，之後自己動手改成 <edited>。
 找出使用者改正的專有名詞或特殊寫法（人名、產品名、公司名、技術名詞、縮寫、大小寫或拼法固定的詞），列出改正後的寫法。
 一般用字、語氣、標點、加減內容的修改都不算。沒有就給空陣列。只輸出 JSON：{"terms": ["..."]}`;
@@ -77,8 +60,9 @@ const TERMS_SCHEMA = {
   additionalProperties: false,
 };
 
-// 盯著一段剛貼的字：{ handle, inserted, before, after }。tick() 由常駐程式每半秒叫一次
-export function createLearner({ ax, log, settings }) {
+// 盯著一段剛貼的字：{ handle, inserted, before, after }。tick() 由常駐程式每半秒叫一次。
+// promote(詞, 'edit')：學到的詞交給詞彙表自動更新（bin/vocab-auto.mjs）處理上限
+export function createLearner({ ax, log, settings, promote }) {
   let watch = null;
 
   async function finish(w) {
@@ -94,8 +78,8 @@ export function createLearner({ ax, log, settings }) {
         user: `<pasted>${w.inserted}</pasted>\n<edited>${edited}</edited>`,
       });
       const terms = JSON.parse(String(raw).match(/\{[\s\S]*\}/)?.[0] ?? '{}').terms ?? [];
-      const added = appendVocabulary(s.vocabularyFile, terms);
-      log(added.length ? `自動學到新詞：${added.join('、')}（寫進詞彙檔）` : `看到改字（${chunks.map((c) => `${c.from}→${c.to}`).join('、')}），沒有要學的專有名詞`);
+      const added = terms.filter((t) => promote(t, 'edit'));
+      if (!added.length) log(`看到改字（${chunks.map((c) => `${c.from}→${c.to}`).join('、')}），沒有要學的專有名詞`);
     } catch (err) {
       log(`自動學詞失敗：${err.message}`);
     }

@@ -6,11 +6,11 @@
 
 macOS 選單列小程式。開著就自動收音，你講的話直接寫進正在用的 app：Claude、ChatGPT、瀏覽器、LINE、備忘錄都可以。只寫不送出，要送自己按 Enter。
 
-分三層。第一層裝好就有，第二、三層從選單打開，每一層都是在前一層上面多做一點：
+分三層，預設都開，每一層都是在前一層上面多做一點；從選單可以關掉第二、三層：
 
 | 層 | 什麼時候寫 | 寫什麼 | 寫到哪 |
 |---|---|---|---|
-| 1. 語音輸入（裝好就有） | 講完一句（停約 0.85 秒） | 轉寫出來的原話 | 游標所在的輸入框；游標不在輸入框就不寫 |
+| 1. 語音輸入 | 講完一句（停約 0.85 秒） | 轉寫出來的原話 | 游標所在的輸入框；游標不在輸入框就不寫 |
 | 2. AI 整理（像 [Typeless](https://www.typeless.com)） | 講完一段（停約 2 秒） | AI 整理過的字：去贅字、改口只留結果、條列、依 app 調語氣、照你的專有名詞。AI 會參考游標前後的字、app、視窗、網址，可以選 OpenAI、DeepSeek、Claude | 同第 1 層 |
 | 3. 自動找輸入框、語音指令 | 同第 2 層 | 同第 2 層 | 游標不在輸入框時，改成挑出視窗裡該寫的輸入框寫進去。講的是「進到台積電的個股頁」這類指令，就不寫字，直接操作最前面的 app。由 [Jev](https://typesafe.ai) 決定（沒有 Jev 就改問 AI） |
 
@@ -61,7 +61,7 @@ AI 會：
 
 ## AI 整理（第二層）
 
-選單「AI 整理」選一家就開，選「關」就回到一句一句貼。開著時：
+預設就開（有 AI 的 key 才會動，沒有就只跑第一層）。選單「AI 整理」可以換家，選「關」就回到一句一句貼。開著時：
 
 - **一段一段整理**：停超過 1.8 秒算一段講完，停下後約 3 秒出字。
 - **整理內容**：
@@ -70,13 +70,16 @@ AI 會：
   - 講「第一、第二」排成條列；講「換行」就換行。
   - 補標點、台灣正體，英文照英文寫，不翻譯。
   - 專有名詞照詞彙檔的寫法。
+- **看畫面**：視窗裡看得到的字（例如正在聊的對話，不含輸入框）最後約 1,500 字一起給 AI。畫面在討論 JarvisVoice，你講的卻被聽成 JavaScript，就會改回 JarvisVoice；真的在講程式的 JavaScript 不會被改。
 - **看游標前後**：接在半句話後面就接下去，後面還有字就不加句號。
 - **依 app 調語氣**：聊天口語、email 正式、給 AI 的指令精準、文件精簡。可以用 `ai.styles` 改。
 - **改選取的字**：選起來講「改正式一點」「縮短」「翻成英文」。
 - **用講的修正**：講「刪掉剛剛那句」「換回原文」，或點選單「換回原文」，把上一段換回轉寫原稿。
-- **自動學詞**：貼上後你自己改掉的專有名詞，會自動加進詞彙檔的「自動學到」區。
+- **詞彙表自動更新**：從畫面上和你自己的改字，挑新的專有名詞加進詞彙檔最後的「自動學到」區。
+  - 不是看到就加：畫面上的詞要在 3 次不同的時候（相隔 10 分鐘以上）都看到，或你真的講到了，才加；你貼上後自己改掉的字直接加。
+  - 有上限：整張詞彙表最多 250 個、自動學到的最多 80 個，滿了先拿掉最少用到、最久沒用到的自動詞。你自己寫的詞不會被動。
 - **歷史**：存在 `~/.voice-dictation/history.jsonl`，只在你的電腦。
-- **送給 AI 的內容**：游標前後各 400 字、選取的字、app、視窗標題、網址。
+- **送給 AI 的內容**：游標前後各 400 字、選取的字、視窗裡看得到的字（最後約 1,500 字）、app、視窗標題、網址。
 
 | 選項 | 預設模型 | 速度（實測中位數） | 費用 |
 |---|---|---|---|
@@ -139,14 +142,16 @@ AI 會：
 | `openai.prompt` | 一兩句話描述場合，不要塞詞彙清單 |
 | `openai.vocabularyFile` | 專有名詞檔，預設 `~/.voice-dictation/vocabulary.txt`，一行一個詞 |
 | `local.language` | `auto` 或 `zh`、`en`、`yue`、`ja`、`ko` |
-| `ai.enabled`／`ai.provider` | AI 整理開關；`deepseek`（預設）、`openai`、`claude`。選單可以直接切 |
+| `ai.enabled`／`ai.provider` | AI 整理開關（預設開）；`deepseek`、`openai`、`claude`，沒寫就用已經有 key 的那家。選單可以直接切 |
 | `ai.keys`／`ai.keyFiles`／`ai.keyCommands` | 各家的 key、放 key 的檔案、或拿 key 的指令（例如 `aws ssm get-parameter ...`，key 不落地）。都沒有就讀環境變數 `DEEPSEEK_API_KEY`、`ANTHROPIC_API_KEY`；OpenAI 沿用 `openai` 的 key |
 | `ai.models` | 換模型，例如 `{ "openai": "gpt-4.1-mini" }` |
 | `ai.segmentPauseMs` | 停多久算一段講完，預設 1800 |
 | `ai.styles` | 各 app（bundle id）或網站（網域）的語氣，例如 `{ "com.tinyspeck.slackmacgap": "口語、簡短" }` |
-| `ai.history`／`ai.learn` | 本機歷史、自動學詞，預設都開 |
-| `autoFocus` | 游標不在輸入框時自動找輸入框 |
-| `commands` | 語音指令 |
+| `ai.screenChars` | 視窗裡看得到的字給 AI 幾個字，預設 1500 |
+| `ai.history`／`ai.learn` | 本機歷史、從你的改字學詞，預設都開 |
+| `ai.autoVocabulary` | 詞彙表自動更新：`{ "enabled": true, "max": 250, "maxAuto": 80, "minSightings": 3 }` |
+| `autoFocus` | 游標不在輸入框時自動找輸入框（預設開） |
+| `commands` | 語音指令（預設開） |
 | `jev.apiKey`／`jev.apiKeyFile`／`jev.apiKeyCommand` | TypeSafe 的 key（環境變數 `TYPESAFE_API_KEY` 也可以） |
 
 ## 疑難排解
@@ -165,7 +170,7 @@ AI 會：
 - `bin/listen.mjs`：常駐程式。它看哪個 app 在最前面，用 ffmpeg 收音、在本機切句，交給轉寫引擎；AI 整理開著就分段交給 AI，再寫進輸入框或執行指令。
 - `bin/engines/`：`batch.mjs`（OpenAI 一般轉寫）、`realtime.mjs`（即時轉寫，OpenAI 或平行沙盒）、`local.mjs`（sherpa-onnx 跑 SenseVoice）。
 - `bin/ax-agent.js`：常駐的「輔助使用」小幫手（JXA）。讀上下文、找輸入框、對焦、貼上（暫存剪貼簿 → Cmd+V → 還原，只送給最前面的 app）、選回剛貼的字、列出畫面上的按鈕並操作。
-- `bin/editor.mjs`：AI 整理。`bin/ai-check.mjs`：檢查 AI 整理和決策器設定好了沒。`bin/decide.mjs`：第三層的決策（Jev）。`bin/commander.mjs`：語音指令。`bin/targeter.mjs`：挑輸入框的規則。`bin/learn.mjs`：自動學詞。
+- `bin/editor.mjs`：AI 整理。`bin/ai-check.mjs`：檢查 AI 整理和決策器設定好了沒。`bin/decide.mjs`：第三層的決策（Jev）。`bin/commander.mjs`：語音指令。`bin/targeter.mjs`：挑輸入框的規則。`bin/learn.mjs`：從你的改字學詞。`bin/vocab-auto.mjs`：詞彙表自動更新與上限。
 - `bin/vocab-test.mjs`：專有名詞測試（見 [AI_SETUP.md](AI_SETUP.md)）。
 - `site/`：網站 jarvis-voice.com，push 到 main 後由 GitHub Actions 發到 GitHub Pages。
 

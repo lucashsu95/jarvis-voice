@@ -30,7 +30,7 @@ function run(argv) {
   const win = $.NSWindow.alloc.initWithContentRectStyleMaskBackingDefer($.NSMakeRect(200, 200, 560, 420), 1 | 2, 2, false);
   win.setTitle('JarvisVoice 測試視窗');
   const view = win.contentView;
-  const search = field($.NSSearchField, $.NSMakeRect(20, 370, 520, 26), '搜尋');
+  const search = field($.NSSearchField, $.NSMakeRect(20, 365, 520, 26), '搜尋');
   const single = field($.NSTextField, $.NSMakeRect(20, 330, 520, 26), '主旨');
   const secret = field($.NSSecureTextField, $.NSMakeRect(20, 290, 520, 26), '密碼');
   const scroll = $.NSScrollView.alloc.initWithFrame($.NSMakeRect(20, 20, 520, 250));
@@ -43,7 +43,9 @@ function run(argv) {
   text.setAccessibilityLabel('訊息');
   scroll.setDocumentView(text);
   scroll.setHasVerticalScroller(true);
-  for (const v of [search, single, secret, scroll]) view.addSubview(v);
+  const note = $.NSTextField.labelWithString($('畫面文字：我們在討論 JarvisVoice'));
+  note.setFrame($.NSMakeRect(20, 395, 520, 20));
+  for (const v of [search, single, secret, scroll, note]) view.addSubview(v);
   win.makeKeyAndOrderFront($());
   win.makeFirstResponder(argv.includes('--focus-none') ? $() : text);
   if (argv.includes('--activate')) app.activateIgnoringOtherApps(true);

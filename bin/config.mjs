@@ -15,19 +15,23 @@
 //                                      // languages：預期的語言（例如 ["zh", "en"]）；舊的 language 單一字串也接受
 //   "parallelsandbox": { "apiKey": "", "apiUrl": "https://api.parallelsandbox.com" },
 //   "ai": {                            // AI 整理（Typeless 的做法）：一段話講完，帶上下文交給 AI 整理再貼
-//     "enabled": false,
-//     "provider": "deepseek",          // openai | deepseek | claude
+//     "enabled": true,                 // 三層預設都開；沒有 AI 的 key 時只跑第一層
+//     "provider": "deepseek",          // openai | deepseek | claude；沒寫就用已經有 key 的那家（DeepSeek → Claude → OpenAI）
 //     "models": {},                    // 換模型：{ "openai": "gpt-6-luna", "deepseek": "deepseek-flash", "claude": "claude-haiku-5-5" }
 //     "keys": {}, "keyFiles": {},      // 各家的 key，或放 key 的檔案（純 key 或 .env）；沒寫就看環境變數，OpenAI 沿用 openai 的 key
 //     "keyCommands": {},               // 或用指令拿 key，key 不落地：{ "deepseek": "aws ssm get-parameter ... --output text" }
 //     "segmentPauseMs": 1800,          // 停多久算一段講完
 //     "contextChars": 400,             // 游標前後各讀幾個字給 AI
+//     "screenChars": 1500,             // 視窗裡看得到的字（不含輸入框）讀最後幾個字給 AI
 //     "styles": {},                    // 各 app（bundle id）或網站（網域）的語氣，蓋過內建的
 //     "history": true,                 // 本機歷史：<狀態資料夾>/history.jsonl
-//     "learn": true                    // 貼上後自己改了專有名詞，就自動加進詞彙檔
+//     "learn": true,                   // 貼上後自己改了專有名詞，就自動加進詞彙檔
+//     "autoVocabulary": { "enabled": true, "max": 250, "maxAuto": 80, "minSightings": 3 }
+//                                      // 從畫面上的字自動挑新的專有名詞加進詞彙檔：畫面上 3 次不同時候都看到、或你講到了才加；
+//                                      // 整張詞彙表最多 max 個、自動學到的最多 maxAuto 個，滿了先拿掉最少用到的自動詞
 //   },
-//   "autoFocus": false,                // 第三層：游標不在輸入框時，自動挑視窗裡要寫的輸入框寫進去
-//   "commands": false,                 // 第三層：游標不在輸入框時講「進到台積電的個股頁」這類指令，直接操作 app（要開 AI 整理）
+//   "autoFocus": true,                 // 第三層：游標不在輸入框時，自動挑視窗裡要寫的輸入框寫進去
+//   "commands": true,                  // 第三層：講「進到台積電的個股頁」這類指令，直接操作 app（要有 AI 整理）
 //   "jev": { "apiKey": "", "apiKeyFile": "", "apiKeyCommand": "", "model": "jev-latest" }
 //                                      // 第三層的決策器：TypeSafe 的 Jev（快、便宜）；沒有 key 就改問 AI 整理那家
 // }
@@ -78,12 +82,13 @@ export function defaults() {
     },
     parallelsandbox: { apiKey: '', apiUrl: 'https://api.parallelsandbox.com' },
     ai: {
-      enabled: false, provider: 'deepseek', models: {}, keys: {}, keyFiles: {}, keyCommands: {},
-      segmentPauseMs: 1800, contextChars: 400, timeoutMs: 6000, styles: {},
+      enabled: true, provider: 'deepseek', models: {}, keys: {}, keyFiles: {}, keyCommands: {},
+      segmentPauseMs: 1800, contextChars: 400, screenChars: 1500, timeoutMs: 6000, styles: {},
       history: true, learn: true,
+      autoVocabulary: { enabled: true, max: 250, maxAuto: 80, minSightings: 3 },
     },
-    autoFocus: false,
-    commands: false,
+    autoFocus: true,
+    commands: true,
     jev: { apiKey: '', apiKeyFile: '', apiKeyCommand: '', model: 'jev-latest' },
   };
 }
@@ -207,7 +212,7 @@ export function loadConfig() {
     openai: { ...base.openai, ...file.openai },
     parallelsandbox: { ...base.parallelsandbox, ...file.parallelsandbox },
     replacements: { ...base.replacements, ...file.replacements },
-    ai: { ...base.ai, ...file.ai },
+    ai: { ...base.ai, ...file.ai, autoVocabulary: { ...base.ai.autoVocabulary, ...file.ai?.autoVocabulary } },
     jev: { ...base.jev, ...file.jev },
   };
   if (!ENGINES.includes(config.engine)) {
@@ -226,8 +231,10 @@ export function loadConfig() {
     config.ai.provider = base.ai.provider;
   }
   for (const key of ['models', 'keys', 'keyFiles', 'keyCommands', 'styles']) if (typeof config.ai[key] !== 'object' || !config.ai[key]) config.ai[key] = {};
-  config.autoFocus = config.autoFocus === true;
-  config.commands = config.commands === true;
+  config.autoFocus = config.autoFocus !== false;
+  config.commands = config.commands !== false;
+  // 沒指定 AI 用哪家：挑已經有 key 的
+  if (!file.ai?.provider) config.ai.provider = ['deepseek', 'claude', 'openai'].find((p) => aiKey(config, p)) ?? base.ai.provider;
   config.jev.apiKey = config.jev.apiKey || keyFromFile(config.jev.apiKeyFile, 'TYPESAFE_API_KEY') || keyFromCommand(config.jev.apiKeyCommand)
     || process.env.TYPESAFE_API_KEY || '';
   const ps = parallelSandboxFromClaudeJson();

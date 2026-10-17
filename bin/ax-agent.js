@@ -4,7 +4,8 @@
 //
 // 請求 { id, op, ... } → 回覆 { id, ... } 或 { id, error }：
 //   check   { ask }                   → { trusted }
-//   context { pid, chars }            → { app, window, url, field: { editable, known, role, subrole, secure, label, before, selected, after, handle } }
+//   context { pid, chars, screen }    → { app, window, url, screen, field: { editable, known, role, subrole, secure, label, before, selected, after, handle } }
+//                                       screen：要幾個字的「視窗裡看得到的字」（不含輸入框），0 就不讀
 //   paste   { pid, text, dry }        → { result: ok | no-accessibility | not-text-field:<角色> | not-front | dry:<字>, handle }
 //   replace { pid, old, text }        → { result: ok | mismatch | no-field | not-front }：游標前面正好是 old 就選起來換成 text（空字串＝刪掉）
 //   按鍵（Cmd+V、Delete）只在 pid 確實是最前面的 app 時才送，不然回 not-front
@@ -158,9 +159,49 @@ function urlOf(web) {
   try { return ObjC.unwrap(v.absoluteString) || ''; } catch (err) { return ''; }
 }
 
+// 視窗裡看得到的字（不含輸入框裡的），照畫面由上往下，取最後 chars 個字：給 AI 判斷在討論什麼、專有名詞怎麼寫
+function screenText(win, chars) {
+  const parts = [];
+  const push = (value) => {
+    const t = (value || '').replace(/\s+/g, ' ').trim();
+    if (t && parts[parts.length - 1] !== t) parts.push(t);
+  };
+  const { webAreas } = walk(win, 600);
+  const params = $.NSDictionary.dictionaryWithObjectsForKeys(
+    $([$('AXStaticTextSearchKey'), $.NSNumber.numberWithInt(600), $('AXDirectionNext'), $.NSNumber.numberWithBool(false), $.NSNumber.numberWithBool(true)]),
+    $(['AXSearchKey', 'AXResultsLimit', 'AXDirection', 'AXImmediateDescendantsOnly', 'AXVisibleOnly']),
+  );
+  for (const web of webAreas) {
+    const ref = Ref();
+    if ($.AXUIElementCopyParameterizedAttributeValue(web, $('AXUIElementsForSearchPredicate'), params, ref) !== 0) continue;
+    const list = ObjC.castRefToObject(ref[0]);
+    for (let i = 0; i < list.count; i += 1) {
+      const el = list.objectAtIndex(i);
+      if (attr(el, 'AXEditableAncestor')) continue; // 輸入框裡的字不算
+      push(text(el, 'AXValue') || text(el, 'AXTitle') || text(el, 'AXDescription'));
+    }
+  }
+  if (!webAreas.length) {
+    // 原生 app：走 AX 樹收靜態文字
+    const queue = [win];
+    let seen = 0;
+    while (queue.length && seen < 2000) {
+      const el = queue.shift();
+      seen += 1;
+      const role = text(el, 'AXRole');
+      if (TEXT_ROLES.includes(role)) continue;
+      if (role === 'AXStaticText') { push(text(el, 'AXValue')); continue; }
+      const kids = attr(el, 'AXChildren');
+      if (kids) for (let i = 0; i < kids.count; i += 1) queue.push(kids.objectAtIndex(i));
+    }
+  }
+  const all = parts.join(' ');
+  return all.length > chars ? all.slice(all.length - chars) : all;
+}
+
 // ---- 操作 ----
 
-function context({ pid, chars = 400 }) {
+function context({ pid, chars = 400, screen = 0 }) {
   const app = appElement(pid);
   const running = $.NSRunningApplication.runningApplicationWithProcessIdentifier(pid);
   const win = attr(app, 'AXFocusedWindow');
@@ -173,6 +214,7 @@ function context({ pid, chars = 400 }) {
   const f = focusedField(app);
   const web = f.el ? webAreaOf(f.el) : null;
   out.url = web ? urlOf(web) : win ? (walk(win, 300).webAreas.map(urlOf).find(Boolean) || '') : '';
+  if (screen && win) out.screen = screenText(win, screen);
   if (!f.known) return out;
   out.field = { known: true, editable: f.editable, role: f.role, subrole: f.subrole, secure: !!f.secure };
   if (!f.editable) return out;

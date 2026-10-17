@@ -30,6 +30,7 @@ import { createRealtimeEngine, openaiConnector, parallelSandboxConnector } from 
 import { appendHistory } from './history.mjs';
 import { createDecider, describeElement, fieldQuestions, inFieldIntentQuestion, inFieldVerdict, intentQuestion, referenceQuestion } from './decide.mjs';
 import { createLearner } from './learn.mjs';
+import { createVocabAuto } from './vocab-auto.mjs';
 import { rankTargets } from './targeter.mjs';
 import { finishText, isSpeech, withSpacing } from './text.mjs';
 
@@ -136,9 +137,7 @@ function announceSettings() {
   log(`AI 整理：${config.ai.enabled ? `${PROVIDER_NAMES[provider]}（${model}）${aiReady() ? '' : '，但沒有 key，先不整理'}` : '關'}；`
     + `自動找輸入框：${config.autoFocus ? '開' : '關'}；指令模式：${config.commands ? (aiReady() ? '開' : '開，但要先開 AI 整理') : '關'}；`
     + `第三層決策：${deciderName || '沒有（照規則）'}`);
-  if (config.ai.enabled && !aiReady()) {
-    setError(`AI 整理選了 ${PROVIDER_NAMES[provider]}，但沒有 key（設定檔 ai.keys.${provider} 或 ai.keyFiles.${provider}）`);
-  }
+  // 沒有 key 不算錯：只跑第一層，選單會寫「（沒有 key）」
 }
 
 function startEngine() {
@@ -170,6 +169,7 @@ function startEngine() {
 function reloadConfigIfChanged() {
   const stamp = configMtime(config);
   if (stamp === configStamp) return;
+  if (engine?.busy()) return; // 有句子還在轉寫，等轉完再換（換引擎會丟掉轉到一半的）
   configStamp = stamp;
   ({ config, error: configError } = loadConfig());
   configStamp = configMtime(config);
@@ -378,10 +378,15 @@ let outputBusy = false;
 let askedAccessibility = false;
 let lastInserted = null; // { pid, text：實際貼上的字, raw：原稿, ai：是不是 AI 整理過 }
 const rememberedTargets = new Map(); // `${pid}:${視窗標題}` → 上次寫進去的輸入框
+const vocab = createVocabAuto({
+  log,
+  settings: () => ({ ...config.ai.autoVocabulary, vocabularyFile: config.openai.vocabularyFile, ai: aiReady() ? aiSettings() : null }),
+});
 const learner = createLearner({
   ax,
   log,
   settings: () => ({ enabled: aiReady() && config.ai.learn, ai: aiSettings(), vocabularyFile: config.openai.vocabularyFile }),
+  promote: (term, source) => vocab.promote(term, source),
 });
 
 const writeLast = (text) => { try { writeFileSync(LAST, text); } catch { /* 選單「複製上一句」拿不到而已 */ } };
@@ -433,7 +438,10 @@ async function focusBestField(pid, transcript, ctx) {
   return true;
 }
 
-const readContext = (front) => (dryPaste || !front.pid ? null : axCall('context', { pid: front.pid, chars: config.ai.contextChars }));
+// AI 整理開著時連畫面上看得到的字一起讀（給 AI 判斷在討論什麼、專有名詞怎麼寫）
+const readContext = (front) => (dryPaste || !front.pid ? null : axCall('context', {
+  pid: front.pid, chars: config.ai.contextChars, screen: aiReady() ? config.ai.screenChars : 0,
+}, 5000));
 
 // 游標在輸入框時問 Jev：看畫面上有什麼，判斷這句是不是要操作畫面
 async function judgeInField(raw, front, ctx) {
@@ -465,7 +473,7 @@ async function aiEdit(raw, front, ctx) {
   const edit = (transcript) => editSegment({
     ...aiSettings(),
     transcript,
-    context: { app: ctx?.app, bundle: front.bundle, window: ctx?.window, url: ctx?.url, field: ctx?.field },
+    context: { app: ctx?.app, bundle: front.bundle, window: ctx?.window, url: ctx?.url, field: ctx?.field, screen: ctx?.screen },
     style: styleFor(config, front.bundle, ctx?.url),
     vocabulary: config.openai.keywords,
     commands: commandsOn(),
@@ -620,6 +628,8 @@ async function deliver(item, front) {
       ai: result ? `${config.ai.provider}/${result.model}` : '', ms: result?.ms ?? 0,
     });
   }
+  // 詞彙表自動更新：記下用到的自動詞，不太頻繁地從畫面挑新的專有名詞
+  if (aiReady()) void vocab.afterSegment({ screen: ctx?.screen ?? '', text: result ? result.text : raw });
   // AI 整理後貼的，盯一下使用者有沒有自己改專有名詞
   if (result?.mode === 'insert' && pasted.handle && ctx?.field && !ctx.field.selected) {
     learner.watch({ handle: pasted.handle, inserted: text, before: ctx.field.before ?? '', after: ctx.field.after ?? '' });

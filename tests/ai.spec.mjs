@@ -17,7 +17,8 @@ const { loadConfig, aiKey, styleFor } = await import('../bin/config.mjs');
 const { rankTargets } = await import('../bin/targeter.mjs');
 const { createDecider, fieldQuestions, stepQuestions } = await import('../bin/decide.mjs');
 const { runCommand } = await import('../bin/commander.mjs');
-const { extractEdited, replacedChunks, appendVocabulary } = await import('../bin/learn.mjs');
+const { extractEdited, replacedChunks } = await import('../bin/learn.mjs');
+const { createVocabAuto, splitVocabulary, plausibleTerm, AUTO_HEADER } = await import('../bin/vocab-auto.mjs');
 const { wavFromPcm16 } = await import('../bin/engines/batch.mjs');
 
 // 假伺服器：handler(請求 JSON, 第幾次, headers) → { status, body }
@@ -48,7 +49,7 @@ test('AI 整理的提示：上下文都放進去、游標欄位一定有；開�
   });
   assert.match(system, /<vocabulary>\nCubeLV\n平行沙盒\n<\/vocabulary>/);
   assert.doesNotMatch(system, /- command：/);
-  assert.match(user, /<app>Slack（com.tinyspeck.slackmacgap）<\/app>/);
+  assert.match(user, /<app>Slack（com.tinyspeck.slackmacgap）（只是使用者正在打字的地方/);
   assert.match(user, /<field>訊息，AXTextArea<\/field>/);
   assert.match(user, /<before>好，<\/before>/);
   assert.match(user, /<style>口語<\/style>/);
@@ -119,8 +120,9 @@ test('設定：AI 各家的 key 從 keys／keyFiles／keyCommands／環境變數
   assert.equal(aiKey(config, 'claude'), 'sk-claude');
   assert.equal(aiKey(config, 'openai'), 'sk-openai');
   assert.equal(config.jev.apiKey, 'ts-key');
-  assert.equal(config.autoFocus, false);
-  assert.equal(config.commands, false);
+  assert.equal(config.ai.enabled, true); // 三層預設都開
+  assert.equal(config.autoFocus, true);
+  assert.equal(config.commands, true);
   assert.match(styleFor(config, 'com.google.Chrome', 'https://mail.google.com/mail/u/0'), /email/);
   assert.match(styleFor(config, 'com.tinyspeck.slackmacgap', ''), /聊天/);
   assert.equal(styleFor(config, 'com.example', ''), '自訂');
@@ -131,6 +133,9 @@ test('設定：AI 各家的 key 從 keys／keyFiles／keyCommands／環境變數
   const viaCommand = loadConfig().config;
   assert.equal(aiKey(viaCommand, 'claude'), 'sk-from-command');
   assert.equal(viaCommand.jev.apiKey, 'ts-cmd');
+  writeFileSync(join(stateDir, 'config.json'), JSON.stringify({ engine: 'openai', openai: { apiKey: 'sk-only-openai' } }));
+  const onlyOpenai = loadConfig().config;
+  assert.equal(onlyOpenai.ai.provider, 'openai'); // 沒指定就用已經有 key 的那家
   writeFileSync(join(stateDir, 'config.json'), JSON.stringify({ ai: { provider: 'gemini' } }));
   assert.match(loadConfig().error, /ai.provider 只能是/);
 });
@@ -263,17 +268,95 @@ test('指令模式：信心太低（動作 < 0.3、對象 < 0.25）就停、按�
   assert.match(missing.reason, /找不到 app/);
 });
 
-test('自動學詞：找出使用者改過的那段、只算換掉的字、加進詞彙檔不重複', () => {
+test('自動學詞：找出使用者改過的那段、只算換掉的字', () => {
   assert.equal(extractEdited('好，幫我把平行沙盒開起來。謝謝', '好，', '謝謝'), '幫我把平行沙盒開起來。');
   assert.equal(extractEdited('全部換掉了', '好，', ''), null);
   assert.deepEqual(replacedChunks('幫我把平行沙和開起來', '幫我把平行沙盒開起來'), [{ from: '和', to: '盒' }]);
   assert.deepEqual(replacedChunks('部署到 cube LV', '部署到 CubeLV'), [{ from: 'c', to: 'C' }]); // 刪掉的空白不算
   assert.deepEqual(replacedChunks('好', '好啊我晚點看'), []); // 只是多打字
-  const vocab = join(stateDir, 'vocab-learn.txt');
-  writeFileSync(vocab, '# 產品\nCubeLV\n');
-  assert.deepEqual(appendVocabulary(vocab, ['cubelv', '平行沙盒', '平行沙盒', '']), ['平行沙盒']);
-  assert.deepEqual(appendVocabulary(vocab, ['平行沙盒']), []);
-  assert.match(readFileSync(vocab, 'utf8'), /# 自動學到.*\n平行沙盒\n$/);
+});
+
+function vocabFixture(manual, opts = {}) {
+  const dir = mkdtempSync(join(tmpdir(), 'voice-dictation-vocab-'));
+  const file = join(dir, 'vocabulary.txt');
+  writeFileSync(file, manual);
+  const logs = [];
+  const vocab = createVocabAuto({
+    log: (m) => logs.push(m), storeFile: join(dir, 'vocabulary-auto.json'),
+    settings: () => ({ vocabularyFile: file, ai: null, ...opts }),
+  });
+  return { file, vocab, logs, read: () => readFileSync(file, 'utf8') };
+}
+
+test('詞彙表自動更新：加在最後的自動區、你自己寫的不動、已經有的不重複、網址路徑不收', () => {
+  const { vocab, read } = vocabFixture('# 產品\nCubeLV\n平行沙盒  # 中文名\n');
+  assert.equal(vocab.promote('JarvisVoice', 'edit'), true);
+  assert.equal(vocab.promote('jarvisvoice', 'screen'), false);
+  assert.equal(vocab.promote('cubelv', 'edit'), false); // 你自己寫過
+  assert.equal(vocab.promote('https://jarvis-voice.com', 'edit'), false);
+  assert.equal(vocab.promote('~/jarvis-voice/bin', 'edit'), false);
+  assert.equal(read(), `# 產品\nCubeLV\n平行沙盒  # 中文名\n\n${AUTO_HEADER}\nJarvisVoice\n`);
+  assert.deepEqual(splitVocabulary(read()), { manualText: '# 產品\nCubeLV\n平行沙盒  # 中文名', manual: ['CubeLV', '平行沙盒'], auto: ['JarvisVoice'] });
+  assert.equal(plausibleTerm('Route 53'), true);
+  assert.equal(plausibleTerm('2330'), false);
+});
+
+test('詞彙表自動更新：畫面上的詞要 3 次不同時候（相隔 10 分鐘）都看到才加；講到了就直接加', () => {
+  const { vocab, read } = vocabFixture('CubeLV\n');
+  const t0 = Date.parse('2026-10-18T10:00:00Z');
+  vocab.observe(['DeepSeek', 'TypeSafe'], t0);
+  vocab.observe(['DeepSeek'], t0 + 60_000); // 同一次（不到 10 分鐘）不算
+  vocab.observe(['DeepSeek'], t0 + 11 * 60_000);
+  assert.doesNotMatch(read(), /DeepSeek/);
+  vocab.observe(['DeepSeek'], t0 + 22 * 60_000);
+  assert.match(read(), /DeepSeek/);
+  vocab.promoteHeard('我們用 TypeSafe 的 Jev 做決策', t0 + 23 * 60_000);
+  assert.match(read(), /TypeSafe/);
+});
+
+test('詞彙表自動更新：有上限，滿了先拿掉最少用到、最久沒用的自動詞；你自己寫的滿了就不加', () => {
+  const now = Date.parse('2026-10-18T10:00:00Z');
+  const day = 86_400_000;
+  const { vocab, read, logs } = vocabFixture('A1\nB1\n', { max: 10, maxAuto: 2 });
+  vocab.promote('OldScreen', 'screen', now - 20 * day);
+  vocab.promote('UsedOne', 'screen', now - 20 * day);
+  vocab.noteHits('今天又講到 UsedOne', now - day);
+  assert.equal(vocab.promote('NewWord', 'heard', now), true);
+  assert.doesNotMatch(read(), /OldScreen/); // 最少用到、最久沒用的被拿掉
+  assert.match(read(), /UsedOne/);
+  assert.match(read(), /NewWord/);
+  assert.equal(vocab.promote('Weak', 'screen', now), false); // 新的分數不夠高就不換
+  assert.ok(logs.some((l) => l.includes('不夠優先')));
+  const full = vocabFixture('A\nB\nC\n', { max: 3 });
+  assert.equal(full.vocab.promote('Extra', 'edit', now), false);
+  assert.ok(full.logs.some((l) => l.includes('詞彙表滿了')));
+});
+
+test('詞彙表自動更新：寫完一段後從畫面挑詞（兩分鐘最多一次、畫面沒變不挑）', async () => {
+  const server = await fakeJson(() => chatReply({ terms: ['JarvisVoice', 'https://x.com', 'DeepSeek'] }));
+  process.env.VOICE_DICTATION_OPENAI_CHAT_URL = `${server.url}/chat`;
+  try {
+    const { vocab, read } = vocabFixture('CubeLV\n', { ai: { provider: 'openai', apiKey: 'sk' } });
+    const t0 = Date.parse('2026-10-18T10:00:00Z');
+    await vocab.afterSegment({ screen: '我們在討論 JarvisVoice 和 DeepSeek', text: '這樣用 JarvisVoice 一個月多少錢' }, t0);
+    assert.equal(server.calls.length, 1);
+    assert.match(read(), /JarvisVoice/); // 剛挑出來、這段又講到 → 直接加
+    assert.doesNotMatch(read(), /DeepSeek/); // 只在畫面上，還是候選
+    await vocab.afterSegment({ screen: '畫面換了', text: '' }, t0 + 30_000);
+    assert.equal(server.calls.length, 1); // 不到兩分鐘不挑
+    await vocab.afterSegment({ screen: '畫面換了', text: '' }, t0 + 3 * 60_000);
+    assert.equal(server.calls.length, 2);
+    await vocab.afterSegment({ screen: '畫面換了', text: '' }, t0 + 6 * 60_000);
+    assert.equal(server.calls.length, 2); // 畫面沒變不挑
+  } finally {
+    server.close();
+  }
+});
+
+test('AI 整理的提示帶上畫面上的字', () => {
+  const { user, system } = buildPrompt({ transcript: '我這樣用 JavaScript 一個月多少錢', context: { screen: '…JarvisVoice 一個月約 US$9…' } });
+  assert.match(user, /<screen>…JarvisVoice 一個月約 US\$9…<\/screen>/);
+  assert.match(system, /<screen> 是使用者畫面上現在看得到的字/);
 });
 
 // 測試音檔：嗶一聲 1 秒、停 1 秒、再嗶 1 秒、停 2.5 秒（兩句、同一段）
@@ -339,7 +422,7 @@ test('整條管線：AI 失敗改貼原稿；AI 整理關著時一句一句貼',
   try {
     const failed = await run({ engine: 'openai', openai: { apiKey: 'sk-test' }, ai: { enabled: true, provider: 'openai', segmentPauseMs: 1500 } });
     assert.deepEqual(failed.filter((e) => e.type === 'pasted').map((e) => e.text), ['嗯第一句。第二句。']);
-    const off = await run({ engine: 'openai', openai: { apiKey: 'sk-test' } });
+    const off = await run({ engine: 'openai', openai: { apiKey: 'sk-test' }, ai: { enabled: false } });
     assert.deepEqual(off.filter((e) => e.type === 'pasted').map((e) => e.text), ['嗯第一句。', '第二句。']);
     assert.equal(chat.calls.length, 1);
   } finally {
