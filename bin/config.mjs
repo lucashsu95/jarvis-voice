@@ -13,9 +13,27 @@
 //                                      // apiKeyFile：key 放在別的檔案時填路徑（純 key，或含 OPENAI_API_KEY= 的 .env）
 //                                      // prompt：一兩句話講這是什麼場合；keywords／vocabularyFile：會講到的專有名詞，一行一個
 //                                      // languages：預期的語言（例如 ["zh", "en"]）；舊的 language 單一字串也接受
-//   "parallelsandbox": { "apiKey": "", "apiUrl": "https://api.parallelsandbox.com" }
+//   "parallelsandbox": { "apiKey": "", "apiUrl": "https://api.parallelsandbox.com" },
+//   "ai": {                            // AI 整理（Typeless 的做法）：一段話講完，帶上下文交給 AI 整理再貼
+//     "enabled": false,
+//     "provider": "deepseek",          // openai | deepseek | claude
+//     "models": {},                    // 換模型：{ "openai": "gpt-6-luna", "deepseek": "deepseek-flash", "claude": "claude-haiku-5-5" }
+//     "keys": {}, "keyFiles": {},      // 各家的 key，或放 key 的檔案（純 key 或 .env）；沒寫就看環境變數，OpenAI 沿用 openai 的 key
+//     "keyCommands": {},               // 或用指令拿 key，key 不落地：{ "deepseek": "aws ssm get-parameter ... --output text" }
+//     "segmentPauseMs": 1800,          // 停多久算一段講完
+//     "contextChars": 400,             // 游標前後各讀幾個字給 AI
+//     "styles": {},                    // 各 app（bundle id）或網站（網域）的語氣，蓋過內建的
+//     "skipApps": [...],               // 這些 app 不讀上下文、不送 AI（密碼管理）
+//     "history": true,                 // 本機歷史：<狀態資料夾>/history.jsonl
+//     "learn": true                    // 貼上後自己改了專有名詞，就自動加進詞彙檔
+//   },
+//   "autoFocus": false,                // 第三層：游標不在輸入框時，自動挑視窗裡要寫的輸入框寫進去
+//   "commands": false,                 // 第三層：游標不在輸入框時講「進到台積電的個股頁」這類指令，直接操作 app（要開 AI 整理）
+//   "jev": { "apiKey": "", "apiKeyFile": "", "apiKeyCommand": "", "model": "jev-latest" }
+//                                      // 第三層的決策器：TypeSafe 的 Jev（快、便宜）；沒有 key 就改問 AI 整理那家
 // }
 
+import { execSync } from 'node:child_process';
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
@@ -24,6 +42,24 @@ export const STATE_DIR = process.env.VOICE_DICTATION_STATE_DIR || join(homedir()
 export const CONFIG_PATH = process.env.VOICE_DICTATION_CONFIG || join(STATE_DIR, 'config.json');
 export const DEFAULT_MODEL = 'sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17';
 export const ENGINES = ['local', 'openai', 'parallelsandbox'];
+export const AI_PROVIDERS = ['openai', 'deepseek', 'claude'];
+const KEY_VARS = { openai: 'OPENAI_API_KEY', deepseek: 'DEEPSEEK_API_KEY', claude: 'ANTHROPIC_API_KEY' };
+
+// 各類 app 的語氣：bundle id 或網域都可以當 key
+const CHAT = '聊天訊息：口語、簡短自然，不用太正式';
+const MAIL = 'email：完整句子、有禮貌、分段清楚';
+const AI = '給 AI 或程式的指令：精準，保留技術名詞和原本的用詞，不加客套話';
+const DOC = '文件：通順精簡';
+export const DEFAULT_STYLES = {
+  'com.tinyspeck.slackmacgap': CHAT, 'app.slack.com': CHAT, 'com.hnc.Discord': CHAT, 'discord.com': CHAT,
+  'jp.naver.line.mac': CHAT, 'com.apple.MobileSMS': CHAT, 'net.whatsapp.WhatsApp': CHAT, 'web.whatsapp.com': CHAT,
+  'ru.keepcoder.Telegram': CHAT, 'com.facebook.archon': CHAT, 'messenger.com': CHAT,
+  'com.apple.mail': MAIL, 'com.microsoft.Outlook': MAIL, 'mail.google.com': MAIL, 'outlook.live.com': MAIL, 'outlook.office.com': MAIL,
+  'com.anthropic.claudefordesktop': AI, 'claude.ai': AI, 'com.openai.chat': AI, 'chatgpt.com': AI,
+  'com.todesktop.230313mzl4w4u92': AI, 'com.microsoft.VSCode': AI, 'com.apple.Terminal': AI, 'com.googlecode.iterm2': AI,
+  'dev.warp.Warp-Stable': AI, 'com.mitchellh.ghostty': AI, 'github.com': AI,
+  'notion.id': DOC, 'notion.so': DOC, 'com.apple.Notes': DOC, 'com.apple.iWork.Pages': DOC, 'com.microsoft.Word': DOC, 'docs.google.com': DOC,
+};
 
 export function defaults() {
   return {
@@ -42,6 +78,16 @@ export function defaults() {
       keywords: [], vocabularyFile: join(STATE_DIR, 'vocabulary.txt'),
     },
     parallelsandbox: { apiKey: '', apiUrl: 'https://api.parallelsandbox.com' },
+    ai: {
+      enabled: false, provider: 'deepseek', models: {}, keys: {}, keyFiles: {}, keyCommands: {},
+      segmentPauseMs: 1800, contextChars: 400, timeoutMs: 6000, styles: {},
+      // 密碼管理不讀上下文、不送 AI
+      skipApps: ['com.1password.1password', 'com.agilebits.onepassword7', 'com.bitwarden.desktop', 'com.apple.keychainaccess', 'com.apple.Passwords'],
+      history: true, learn: true,
+    },
+    autoFocus: false,
+    commands: false,
+    jev: { apiKey: '', apiKeyFile: '', apiKeyCommand: '', model: 'jev-latest' },
   };
 }
 
@@ -62,13 +108,14 @@ function parallelSandboxFromClaudeJson() {
   return {};
 }
 
-// key 放在別的檔案：整個檔案就是 key，或是 .env 裡的 OPENAI_API_KEY=
-function keyFromFile(file) {
+// key 放在別的檔案：整個檔案就是 key，或是 .env 裡的 OPENAI_API_KEY=（DeepSeek、Claude 是各自的變數名）
+function keyFromFile(file, name = 'OPENAI_API_KEY') {
   if (!file) return '';
   try {
     const text = readFileSync(file.replace(/^~(?=\/)/, homedir()), 'utf8');
-    const line = text.match(/^\s*(?:export\s+)?OPENAI_API_KEY\s*=\s*["']?([^"'\s]+)/m);
-    return line ? line[1] : text.trim();
+    const line = text.match(new RegExp(`^\\s*(?:export\\s+)?${name}\\s*=\\s*["']?([^"'\\s]+)`, 'm'));
+    if (line) return line[1];
+    return /=/.test(text) ? '' : text.trim();
   } catch {
     return '';
   }
@@ -100,6 +147,42 @@ export function appAllowed(config, bundle) {
   return config.apps.includes('*') || config.apps.includes(bundle);
 }
 
+// 用指令拿 key（例如從 AWS SSM、1Password 讀），key 不寫進檔案。拿到就記著；失敗一分鐘後再試
+const commandKeys = new Map();
+function keyFromCommand(command) {
+  if (!command) return '';
+  const cached = commandKeys.get(command);
+  if (cached && (cached.key || Date.now() - cached.at < 60_000)) return cached.key;
+  let key = '';
+  try {
+    key = execSync(command, {
+      encoding: 'utf8', timeout: 15_000, stdio: ['ignore', 'pipe', 'ignore'], shell: '/bin/sh',
+      env: { ...process.env, PATH: `${process.env.PATH ?? ''}:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin` },
+    }).trim();
+  } catch { /* 拿不到 */ }
+  commandKeys.set(command, { key, at: Date.now() });
+  return key;
+}
+
+// AI 整理用哪把 key：設定檔 keys → keyFiles → keyCommands → 環境變數；OpenAI 沿用轉寫的 key
+export function aiKey(config, provider = config.ai.provider) {
+  const ai = config.ai;
+  return ai.keys?.[provider] || keyFromFile(ai.keyFiles?.[provider], KEY_VARS[provider]) || keyFromCommand(ai.keyCommands?.[provider])
+    || process.env[KEY_VARS[provider]] || (provider === 'openai' ? config.openai.apiKey : '') || '';
+}
+
+// 這個 app／網站要什麼語氣：網域比 app 優先（瀏覽器裡的 Gmail 要用 email 的語氣）
+export function styleFor(config, bundle, url) {
+  const styles = { ...DEFAULT_STYLES, ...config.ai.styles };
+  let host = '';
+  try { host = url ? new URL(url).hostname : ''; } catch { /* 不是網址 */ }
+  if (host) {
+    const key = Object.keys(styles).find((k) => host === k || host.endsWith(`.${k}`));
+    if (key) return styles[key];
+  }
+  return styles[bundle] ?? '';
+}
+
 // 即時模型走 Realtime 連線，其他走一般轉寫（整句上傳）
 export const isLiveModel = (model) => /live|realtime/i.test(model ?? '');
 
@@ -127,6 +210,8 @@ export function loadConfig() {
     openai: { ...base.openai, ...file.openai },
     parallelsandbox: { ...base.parallelsandbox, ...file.parallelsandbox },
     replacements: { ...base.replacements, ...file.replacements },
+    ai: { ...base.ai, ...file.ai },
+    jev: { ...base.jev, ...file.jev },
   };
   if (!ENGINES.includes(config.engine)) {
     error = `engine 只能是 ${ENGINES.join('、')}，設定檔寫的是「${config.engine}」`;
@@ -139,6 +224,16 @@ export function loadConfig() {
   config.openai.keywords = cleanKeywords([...(config.openai.keywords ?? []), ...readVocabulary(config.openai.vocabularyFile)]);
   const langs = Array.isArray(config.openai.languages) ? config.openai.languages : [];
   config.openai.languages = langs.length ? langs : config.openai.language ? [config.openai.language] : [];
+  if (!AI_PROVIDERS.includes(config.ai.provider)) {
+    error = `ai.provider 只能是 ${AI_PROVIDERS.join('、')}，設定檔寫的是「${config.ai.provider}」`;
+    config.ai.provider = base.ai.provider;
+  }
+  for (const key of ['models', 'keys', 'keyFiles', 'keyCommands', 'styles']) if (typeof config.ai[key] !== 'object' || !config.ai[key]) config.ai[key] = {};
+  if (!Array.isArray(config.ai.skipApps)) config.ai.skipApps = base.ai.skipApps;
+  config.autoFocus = config.autoFocus === true;
+  config.commands = config.commands === true;
+  config.jev.apiKey = config.jev.apiKey || keyFromFile(config.jev.apiKeyFile, 'TYPESAFE_API_KEY') || keyFromCommand(config.jev.apiKeyCommand)
+    || process.env.TYPESAFE_API_KEY || '';
   const ps = parallelSandboxFromClaudeJson();
   config.parallelsandbox.apiKey = config.parallelsandbox.apiKey || process.env.PARALLELSANDBOX_API_KEY || ps.apiKey || '';
   config.parallelsandbox.apiUrl = (process.env.PARALLELSANDBOX_API_URL || ps.apiUrl || config.parallelsandbox.apiUrl).replace(/\/+$/, '');

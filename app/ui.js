@@ -5,11 +5,14 @@
 // 圖示跳來跳去），顏色交給系統（範本圖，跟其他選單列圖示同色），只換箭頭裡面的東西：
 //   三條聲波＝收音中、聲波變高＝聽到你講話、打勾＝剛貼好、叉叉＝游標不在輸入框所以沒貼、
 //   ‖＝暫停、聲波變淡＝待命（最前面的 app 不收音）、驚嘆號＝出錯（點開選單看原因）。
+// 選單可以切 AI 整理（關／OpenAI／DeepSeek／Claude）、自動找輸入框、語音指令，改的是設定檔，常駐程式會自己換；
+// 「換回原文」把上一段 AI 整理過的字換回轉寫原稿。
 // BUILD（{ node, repo, state }）由外殼放在全域。
 const LISTEN = `${BUILD.repo}/bin/listen.mjs`;
 const NODE_DIR = BUILD.node.replace(/\/[^/]*$/, '');
 const ENGINE_NAMES = { local: '本機', openai: 'OpenAI', parallelsandbox: '平行沙盒' };
 const GUIDE_URL = 'https://github.com/urusaqqrun/voice-dictation#readme';
+const AI_NAMES = { openai: 'OpenAI', deepseek: 'DeepSeek', claude: 'Claude' };
 
 let statusItem = null;
 let statusLine = null;
@@ -21,6 +24,13 @@ let buffer = '';
 let view = { state: 'starting', message: '', engine: '' };
 let hearing = false; // 常駐程式說聽到人聲
 let flash = null; // { kind: 'pasted' | 'nofield', until }：短暫顯示的結果
+// 常駐程式報上來的設定（settings 事件）
+let settings = { ai: { enabled: false, provider: 'deepseek', ready: false }, autoFocus: false, commands: false, decider: '' };
+let aiMenuItem = null;
+let aiOffItem = null;
+const aiItems = {};
+let autoFocusItem = null;
+let commandsItem = null;
 
 const statePath = (name) => `${BUILD.state}/${name}`;
 const fm = () => $.NSFileManager.defaultManager;
@@ -28,7 +38,9 @@ const fm = () => $.NSFileManager.defaultManager;
 function label() {
   const name = ENGINE_NAMES[view.engine] ? `（${ENGINE_NAMES[view.engine]}）` : '';
   switch (view.state) {
-    case 'listening': return `聽著${name}：講完一句就貼進游標所在的輸入框`;
+    case 'listening': return settings.ai.enabled && settings.ai.ready
+      ? `聽著${name}：講完一段，${AI_NAMES[settings.ai.provider]} 整理後寫進輸入框`
+      : `聽著${name}：講完一句就貼進游標所在的輸入框`;
     case 'standby': return `待命${name}：最前面的 app 不收音`;
     case 'paused': return `已暫停${name}`;
     case 'error': return `出錯：${view.message}`;
@@ -113,9 +125,16 @@ function look() {
   return ['standby', ''];
 }
 
-// 測試用：目前選單列圖示旁的字與選單第一行
+// 測試用：目前選單列圖示旁的字、選單第一行、AI 與開關的勾選狀態
 function uiSnapshot() {
-  return statusItem ? { title: ObjC.unwrap(statusItem.button.title), line: ObjC.unwrap(statusLine.title) } : null;
+  if (!statusItem) return null;
+  return {
+    title: ObjC.unwrap(statusItem.button.title),
+    line: ObjC.unwrap(statusLine.title),
+    ai: ObjC.unwrap(aiMenuItem.title),
+    checked: [aiOffItem, ...Object.values(aiItems), autoFocusItem, commandsItem].map((item) => item.state).join(''),
+    commands: ObjC.unwrap(commandsItem.title),
+  };
 }
 
 // 診斷：選單列圖示實際的位置寫進 menubar.json（瀏海機型圖示太多時會被擠到瀏海後面看不到）
@@ -143,6 +162,49 @@ function refresh() {
   statusItem.button.setToolTip(`全語音輸入：${hint || label()}`);
   statusLine.setTitle(label());
   toggleItem.setTitle(view.state === 'paused' ? '繼續收音' : '暫停收音');
+}
+
+function refreshSettings() {
+  if (!aiMenuItem) return;
+  const { ai } = settings;
+  aiMenuItem.setTitle(`AI 整理：${ai.enabled ? `${AI_NAMES[ai.provider]}${ai.ready ? '' : '（沒有 key）'}` : '關'}`);
+  aiOffItem.setState(ai.enabled ? 0 : 1);
+  for (const [provider, item] of Object.entries(aiItems)) item.setState(ai.enabled && ai.provider === provider ? 1 : 0);
+  autoFocusItem.setState(settings.autoFocus ? 1 : 0);
+  commandsItem.setState(settings.commands ? 1 : 0);
+  commandsItem.setTitle(`語音指令（游標不在輸入框時直接操作 app${settings.decider ? `，${settings.decider} 決策` : ''}）`);
+}
+
+// 改設定檔：讀進來、改、寫回去；常駐程式看到檔案改了會自己換設定
+function updateConfig(change) {
+  const path = statePath('config.json');
+  let config = {};
+  const text = $.NSString.stringWithContentsOfFileEncodingError(path, $.NSUTF8StringEncoding, null);
+  if (text && !text.isNil()) {
+    try { config = JSON.parse(ObjC.unwrap(text)); } catch (err) {
+      openInTextEdit(path); // 設定檔壞了不要蓋掉，打開給人看
+      return;
+    }
+  }
+  change(config);
+  $(`${JSON.stringify(config, null, 2)}\n`).writeToFileAtomicallyEncodingError(path, true, $.NSUTF8StringEncoding, null);
+}
+
+function chooseAi(provider) {
+  updateConfig((config) => {
+    config.ai = config.ai ?? {};
+    config.ai.enabled = !!provider;
+    if (provider) config.ai.provider = provider;
+  });
+}
+
+// 開關型的設定（autoFocus、commands）：照常駐程式目前報的狀態反過來
+function toggleSetting(key) {
+  updateConfig((config) => { config[key] = !settings[key]; });
+}
+
+function requestRevert() {
+  fm().createFileAtPathContentsAttributes(statePath('revert-request'), $(), $());
 }
 
 function ensureFile(path, text) {
@@ -182,7 +244,11 @@ function showFlash(kind, ms) {
 function onLine(line) {
   let event;
   try { event = JSON.parse(line); } catch { return; }
-  if (event.type === 'state') {
+  if (event.type === 'settings') {
+    settings = { ...settings, ...event };
+    refreshSettings();
+    refresh();
+  } else if (event.type === 'state') {
     view = { state: event.state, message: event.message || '', engine: event.engine || view.engine };
     if (view.state !== 'listening') hearing = false;
     refresh();
@@ -275,6 +341,13 @@ ObjC.registerSubclass({
     },
     'openGuide:': { types: ['void', ['id']], implementation() { $.NSWorkspace.sharedWorkspace.openURL($.NSURL.URLWithString(GUIDE_URL)); } },
     'quitApp:': { types: ['void', ['id']], implementation() { quitApp(); } },
+    'aiOff:': { types: ['void', ['id']], implementation() { chooseAi(''); } },
+    'aiOpenai:': { types: ['void', ['id']], implementation() { chooseAi('openai'); } },
+    'aiDeepseek:': { types: ['void', ['id']], implementation() { chooseAi('deepseek'); } },
+    'aiClaude:': { types: ['void', ['id']], implementation() { chooseAi('claude'); } },
+    'toggleAutoFocus:': { types: ['void', ['id']], implementation() { toggleSetting('autoFocus'); } },
+    'toggleCommands:': { types: ['void', ['id']], implementation() { toggleSetting('commands'); } },
+    'revert:': { types: ['void', ['id']], implementation() { requestRevert(); } },
     'stdout:': { types: ['void', ['id']], implementation(note) { onStdout(note); } },
     'ended:': { types: ['void', ['id']], implementation() { onEnded(); } },
     'restart:': { types: ['void', ['id']], implementation() { startListener(); } },
@@ -308,6 +381,24 @@ function startUI() {
   toggleItem = menuItem('暫停收音', 'toggle:');
   menu.addItem(toggleItem);
   menu.addItem(menuItem('複製上一句', 'copyLast:'));
+  menu.addItem(menuItem('換回原文（上一段 AI 整理前）', 'revert:'));
+  menu.addItem($.NSMenuItem.separatorItem);
+  aiMenuItem = menuItem('AI 整理：關', null);
+  const aiMenu = $.NSMenu.alloc.init;
+  aiMenu.setAutoenablesItems(false);
+  aiOffItem = menuItem('關（講完一句直接貼）', 'aiOff:');
+  aiMenu.addItem(aiOffItem);
+  aiMenu.addItem($.NSMenuItem.separatorItem);
+  for (const [provider, name] of Object.entries(AI_NAMES)) {
+    aiItems[provider] = menuItem(name, `ai${provider[0].toUpperCase()}${provider.slice(1)}:`);
+    aiMenu.addItem(aiItems[provider]);
+  }
+  aiMenuItem.setSubmenu(aiMenu);
+  menu.addItem(aiMenuItem);
+  autoFocusItem = menuItem('自動找輸入框（游標不在輸入框時）', 'toggleAutoFocus:');
+  menu.addItem(autoFocusItem);
+  commandsItem = menuItem('語音指令', 'toggleCommands:');
+  menu.addItem(commandsItem);
   menu.addItem($.NSMenuItem.separatorItem);
   menu.addItem(menuItem('編輯專有名詞…', 'openVocabulary:'));
   menu.addItem(menuItem('編輯設定檔…', 'openConfig:'));
@@ -315,6 +406,7 @@ function startUI() {
   menu.addItem($.NSMenuItem.separatorItem);
   menu.addItem(menuItem('結束全語音輸入', 'quitApp:'));
   statusItem.setMenu(menu);
+  refreshSettings();
   refresh();
   $.NSTimer.scheduledTimerWithTimeIntervalTargetSelectorUserInfoRepeats(2, controller, 'dumpFrame:', $(), false);
   startListener();

@@ -20,6 +20,7 @@ export class AudioTurnDetector {
   silenceMs = 0;
   activeStart = null;
   lastVoiceEnd = 0;
+  lastVoiced = false; // 最近一批有沒有人聲（算「停了多久」用）
 
   get speaking() { return this.activeStart !== null; }
 
@@ -34,6 +35,7 @@ export class AudioTurnDetector {
       peak = Math.max(peak, value);
     }
     const voiced = Math.sqrt(sum / samples.length) >= 0.011 || peak >= 0.055;
+    this.lastVoiced = voiced;
     if (voiced) {
       if (this.candidateStart === null) this.candidateStart = startMs;
       this.voicedMs += durationMs;

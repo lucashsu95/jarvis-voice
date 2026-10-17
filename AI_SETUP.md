@@ -8,7 +8,7 @@
 
 | 檔案 | 內容 |
 |---|---|
-| `vocabulary.txt` | 專有名詞，一行一個，`#` 後面是註解。用 OpenAI 引擎時會當成 `keywords` 送出 |
+| `vocabulary.txt` | 專有名詞，一行一個，`#` 後面是註解。用 OpenAI 引擎時會當成 `keywords` 送出；開了 AI 整理時 AI 也照這些寫法改字。「# 自動學到」區是使用者貼上後自己改掉的詞，不要刪 |
 | `config.json` | 設定檔；這次要動的是 `openai.prompt`、`openai.languages`、`replacements` |
 | `test-sentences.txt` | 測試句，一行一句，`#` 後面是註解 |
 
