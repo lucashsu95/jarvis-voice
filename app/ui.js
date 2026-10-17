@@ -46,9 +46,9 @@ function iconPath(points) {
   return p;
 }
 
-function iconBar(cx, h, alpha = 1) {
+function iconBar(cx, h, alpha = 1, cy = 9) {
   $.NSColor.colorWithWhiteAlpha(0, alpha).set;
-  $.NSBezierPath.bezierPathWithRoundedRectXRadiusYRadius($.NSMakeRect(cx - 0.75, 9 - h / 2, 1.5, h), 0.75, 0.75).fill;
+  $.NSBezierPath.bezierPathWithRoundedRectXRadiusYRadius($.NSMakeRect(cx - 0.75, cy - h / 2, 1.5, h), 0.75, 0.75).fill;
 }
 
 function iconStroke(points, width = 1.5) {
@@ -84,7 +84,11 @@ function drawGlyph(kind) {
   else if (kind === 'paused') { iconBar(7.4, 5.4); iconBar(10.6, 5.4); }
   else if (kind === 'pasted') iconStroke([[6.3, 9.1], [8.3, 7.1], [11.9, 10.9]], 1.6);
   else if (kind === 'nofield') { iconStroke([[6.9, 11.1], [11.1, 6.9]]); iconStroke([[6.9, 6.9], [11.1, 11.1]]); }
-  else if (kind === 'error') { iconBar(9, 5.2); $.NSBezierPath.bezierPathWithOvalInRect($.NSMakeRect(8.2, 4.7, 1.6, 1.6)).fill; }
+  else if (kind === 'error') {
+    // 驚嘆號整體（直線 5、空隙 1.1、圓點 1.6）的中心對齊圓心
+    iconBar(9, 5, 1, 10.35);
+    $.NSBezierPath.bezierPathWithOvalInRect($.NSMakeRect(8.2, 5.15, 1.6, 1.6)).fill;
+  }
   else [[6.6, 2.6], [9, 5.2], [11.4, 3.2]].forEach(([x, h]) => iconBar(x, h));
 }
 
