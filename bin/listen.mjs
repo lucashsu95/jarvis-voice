@@ -404,7 +404,9 @@ async function main() {
   }
   if (appMode) {
     try { if (statSync(LOG).size > 1_000_000) writeFileSync(LOG, ''); } catch { /* 還沒有 log */ }
-    const access = (await exec('/usr/bin/osascript', ['-l', 'JavaScript', join(HERE, 'paste.js'), '', '--check'], 5000)).trim();
+    // 沒權限就在啟動時跳系統詢問，「語音輸入」才會出現在輔助使用清單裡
+    const access = (await exec('/usr/bin/osascript', ['-l', 'JavaScript', join(HERE, 'paste.js'), '', '--check', '--ask'], 5000)).trim();
+    if (access !== 'trusted') askedAccessibility = true;
     log(`輔助使用權限：${access === 'trusted' ? '有' : '沒有（字貼不進去：系統設定 → 隱私權與安全性 → 輔助使用，打開「語音輸入」）'}`);
   }
   process.on('SIGTERM', () => shutdown(0));

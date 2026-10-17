@@ -77,7 +77,14 @@ function pressCommandV() {
 function run(argv) {
   const text = argv[0] || '';
   const dry = argv.includes('--dry');
-  if (argv.includes('--check')) return $.AXIsProcessTrusted() ? 'trusted' : 'no-accessibility'; // 只查權限
+  if (argv.includes('--check')) {
+    // 只查權限；帶 --ask 時沒權限就跳系統詢問，順便把 app 登記進「輔助使用」清單
+    if ($.AXIsProcessTrusted()) return 'trusted';
+    if (argv.includes('--ask')) {
+      $.AXIsProcessTrustedWithOptions($.NSDictionary.dictionaryWithObjectForKey($.NSNumber.numberWithBool(true), $('AXTrustedCheckOptionPrompt')));
+    }
+    return 'no-accessibility';
+  }
   const pidAt = argv.indexOf('--pid');
   const pid = pidAt >= 0 ? Number(argv[pidAt + 1]) || 0 : 0;
   if (!dry && !$.AXIsProcessTrusted()) {
