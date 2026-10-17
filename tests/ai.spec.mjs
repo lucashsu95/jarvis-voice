@@ -69,7 +69,7 @@ test('AI 回的 JSON：格式不對、改寫選取卻給空字、沒開指令模
   assert.equal(parseResult('不是 JSON'), null);
   const command = '{"mode":"command","text":"台積電","goal":"打開台積電個股頁","app":""}';
   assert.equal(parseResult(command), null);
-  assert.deepEqual(parseResult(command, { commands: true }), { mode: 'command', text: '台積電', goal: '打開台積電個股頁', app: '' });
+  assert.deepEqual(parseResult(command, { commands: true }), { mode: 'command', text: '台積電', goal: '打開台積電個股頁', app: '', message: '' });
   assert.equal(parseResult('{"mode":"command","text":"","goal":" ","app":""}', { commands: true }), null);
 });
 
@@ -202,7 +202,8 @@ function fakeAx(screens) {
   return {
     acts,
     async call(op, args) {
-      if (op === 'elements') return screens[Math.min(step, screens.length - 1)];
+      // 每做一步畫面就變（標題帶步數），不會被「做了畫面沒變就停」擋下
+      if (op === 'elements') { const sc = screens[Math.min(step, screens.length - 1)]; return { ...sc, window: { ...sc.window, title: `${sc.window?.title ?? ''}#${step}` } }; }
       if (op === 'act') { acts.push(args); step += 1; return { result: 'ok' }; }
       throw new Error(op);
     },
@@ -446,9 +447,58 @@ test('整條管線：開了指令模式，AI 說是指令就走指令（測試�
   }
 });
 
+test('傳訊息給某人：填名字 → 點搜尋框下第一個含名字的結果 → 確認對話對象才寫 → 不送出；不對就停、不試下一個', async () => {
+  const win = { x: 0, y: 0, w: 1000, h: 800, title: 'LINE' };
+  const field = (value) => ({ handle: 2, role: 'AXTextField', subrole: '', label: '', value, x: 40, y: 50, w: 260, h: 30, focused: true });
+  const box = { handle: 3, role: 'AXTextArea', subrole: '', label: '', value: '', x: 340, y: 700, w: 600, h: 70, focused: false };
+  const ocr = (label, y) => ({ handle: 0, role: 'OCRText', subrole: '', label, value: '', x: 60, y, w: 80, h: 20, focused: false, ocr: true });
+  const header = (label) => ({ ...ocr(label, 20), x: 400 });
+  const run = async (answers) => {
+    let screen = 0;
+    const screens = [
+      { window: win, elements: [field(''), box, header('微波烤箱廢物食堂')] },
+      { window: win, elements: [field('BU'), box, header('微波烤箱廢物食堂'), ocr('bubu', 180), ocr('Bubu科技有限公司', 300)] },
+      { window: win, elements: [field('BU'), box, header('bubu'), ocr('bubu', 180), ocr('Bubu科技有限公司', 300)] },
+    ];
+    const acts = [];
+    const ax = {
+      async call(op, args) {
+        if (op === 'elements') return screens[Math.min(screen, screens.length - 1)];
+        if (op === 'act') { acts.push(args); screen += 1; return { result: 'ok' }; }
+        throw new Error(op);
+      },
+    };
+    let checks = 0;
+    const decider = { engine: () => 'Jev', canEscalate: () => false, async decide() { checks += 1; return { right: { noul: answers[Math.min(checks - 1, answers.length - 1)] } }; } };
+    const result = await runCommand({
+      ax, decider, log: () => {}, frontApp: async () => ({ pid: 9 }), openApp: async () => true,
+      goal: '打開和 BU 的對話，在訊息框寫好訊息（不送出）', text: 'BU', message: '你好', context: { app: 'LINE' },
+    });
+    return { result, acts };
+  };
+  // 一開始是群組（不對）→ 填名字 → 點第一個結果 bubu → 確認是 bubu → 寫
+  const ok = await run([0.1, 0.1, 0.9]);
+  assert.equal(ok.result.ok, true, ok.result.reason);
+  assert.deepEqual(ok.acts.map((a) => [a.action, a.text ?? '', a.y ?? '']), [['fill', 'BU', ''], ['clickAt', '', 190], ['fill', '你好', '']]);
+  assert.match(ok.result.steps.at(-1), /寫了「你好」（沒送出）/);
+  // 點了第一個結果還是不對：停，不寫、不去點 Bubu科技有限公司
+  const wrong = await run([0.1, 0.1, 0.2, 0.2, 0.2, 0.2]);
+  assert.equal(wrong.result.ok, false);
+  assert.match(wrong.result.reason, /第一個打開的不是和「BU」的對話，沒寫/);
+  assert.ok(!wrong.acts.some((a) => a.text === '你好'), '對象不對就不能寫');
+  assert.equal(wrong.acts.filter((a) => a.action === 'clickAt').length, 1, '只點第一個結果');
+});
+
+test('AI 拆出傳訊息的對象和內容', () => {
+  const r = parseResult('{"mode":"command","text":"BU","goal":"打開和 BU 的對話","app":"LINE","message":"你好"}', { commands: true });
+  assert.deepEqual(r, { mode: 'command', text: 'BU', goal: '打開和 BU 的對話', app: 'LINE', message: '你好' });
+  const { system } = buildPrompt({ transcript: '幫我傳給 BU 說你好', commands: true });
+  assert.match(system, /\(c\) 叫電腦幫忙傳訊息給某個人/);
+});
+
 test('指令模式的一步：選項是畫面上的元件，帶位置和角色', () => {
   const q = stepQuestions([el(1, 'AXLink', '台積電 2330', 700)], { x: 0, y: 0, w: 1000, h: 800 });
-  assert.deepEqual(Object.keys(q.action.criteria), ['click', 'fill', 'enter', 'done', 'stuck']);
+  assert.deepEqual(Object.keys(q.action.criteria), ['click', 'fill', 'enter', 'write', 'done', 'stuck']);
   assert.equal(q.target.criteria.e0, '連結「台積電 2330」（下左）');
 });
 

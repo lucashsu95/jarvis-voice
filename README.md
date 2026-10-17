@@ -34,6 +34,7 @@ The JarvisVoice icon (a circular arrow around three sound bars) appears in the m
 
 1. **Microphone**: allow it when "JarvisVoice would like to access the microphone" appears.
 2. **Accessibility** (needed to paste): you're asked the first time you speak. Turn on "JarvisVoice" in System Settings → Privacy & Security → Accessibility.
+3. **Screen Recording** (optional, only for apps it can't read, such as LINE): you're asked the first time it's needed. Turn on "JarvisVoice" in System Settings → Privacy & Security → Screen Recording.
 
 The `openai` engine needs an OpenAI key. Let your AI set it up in step 2 (you paste the key yourself in Terminal; the AI never sees it), or add `"apiKeyFile": "<file with your key>"` under `openai` in `~/.voice-dictation/config.json`.
 
@@ -98,9 +99,12 @@ Dictating an hour a day, AI cleanup costs less than US$1 a month.
   - At each step it lists the buttons, links and text fields on screen, and the decision maker picks what to click, where to type, or whether to press Enter.
   - It keeps going until the decision maker says it's done or can't be done; it stops if the decision maker's confidence is too low. "Pause listening" also stops it.
   - When the cursor is in a text field (for example Claude's prompt box), Jev looks at what's on screen to decide: if it's clearly an instruction to operate the screen, or it names something on screen, it's treated as a command; something like "switch to another branch and run the tests again", meant for the AI, is typed as usual. For short, ambiguous phrases, start with "command, …" and it's always treated as a command.
+- **Message someone**: say "tell BU hello" or "tell Mom I'll be late" and it follows fixed steps: type the name into the search box → click the first result below it that contains the name → check the conversation title to confirm it's that person → write the message into the message box, **without sending**. If the first result isn't that person, it stops; it never tries other results or writes into the wrong conversation.
+- **Apps it can't read** (LINE, for example: Accessibility only exposes the search box and the message box): it captures the frontmost window and reads the text and positions with macOS's built-in text recognition (on your Mac; the image is never saved or sent), and uses them as context for the AI and as things it can click. This needs one more permission, Screen Recording; apps it can read are never captured.
 - **Decision maker**:
   - With a Jev key (`jev`), Jev decides, about 0.2 s per decision.
-  - Without one, your AI provider decides, about 1 s per decision.
+  - On screens read from a screenshot, when Jev isn't sure, or when a step didn't change the screen, that step goes to your AI provider instead (about 1 s); if the same step still doesn't change anything, it stops.
+  - Without Jev, your AI provider decides everything.
 
 ## Transcription engines
 

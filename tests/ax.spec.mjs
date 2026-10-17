@@ -80,6 +80,29 @@ test('AX 小幫手：讀上下文、找輸入框、對焦、列元件；不在�
   }
 });
 
+test('讀不到畫面時截圖認字：認出視窗上的字和位置（要螢幕錄影權限）', { skip: !trusted && '沒有輔助使用權限', timeout: 30_000 }, async () => {
+  const win = await openStockWindow();
+  try {
+    // 視窗剛開可能還沒畫完：最多試 5 次
+    let seen;
+    let labels = [];
+    for (let i = 0; i < 5; i += 1) {
+      seen = await ax.call('ocr', { pid: win.pid, ask: false }, 15000);
+      if (!seen.permission) return; // 跑測試的程式沒有螢幕錄影權限就略過
+      labels = seen.items.map((x) => x.text);
+      if (labels.some((t) => t.includes('設定'))) break;
+      await new Promise((r) => setTimeout(r, 400));
+    }
+    assert.ok(labels.some((t) => t.includes('設定')), labels.join('|'));
+    const both = await ax.call('elements', { pid: win.pid, ocr: 'always' }, 15000);
+    assert.equal(both.source, 'ocr');
+    assert.ok(both.elements.some((e) => e.ocr && e.label.includes('自選股')), '視窗標題是讀不到的元件，要列進來');
+    assert.ok(!both.elements.some((e) => e.ocr && e.label === '設定'), '按鈕上的字已經有元件了，不重複列');
+  } finally {
+    win.kill();
+  }
+});
+
 async function openStockWindow() {
   const win = spawn('/usr/bin/osascript', ['-l', 'JavaScript', join(import.meta.dirname, 'fixtures', 'stock-window.js')], { stdio: 'ignore' });
   for (let i = 0; i < 40; i += 1) {
@@ -159,6 +182,10 @@ test('貼上與換回原文（測試視窗在最前面）', {
     assert.equal((await ax.call('replace', { pid, old: '嗯我們明天三點不對四點開會。', text: '' })).result, 'ok');
     await new Promise((r) => setTimeout(r, 200));
     assert.equal((await ax.call('read', { handle })).value, '');
+    // 游標不在剛填的那個框：不按 Enter（游標在訊息框按 Enter 會送出）
+    const { candidates } = await ax.call('targets', { pid });
+    const subject = candidates.find((c) => c.label === '主旨');
+    assert.equal((await ax.call('act', { pid, handle: subject.handle, action: 'enter' })).result, 'not-focused');
   } finally {
     win.kill();
     if (startBundle) execFileSync('/usr/bin/open', ['-b', startBundle]);

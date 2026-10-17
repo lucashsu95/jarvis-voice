@@ -43,6 +43,7 @@ async function askLlm({ ai, state, questions, timeoutMs = 8000 }) {
 }
 
 // settings：{ jevKey, jevModel, ai }（ai 是 editor.ask 的參數，沒有 Jev 時用）
+// escalate：Jev 拿不準時，同一題改問 AI 整理那家（慢一點、會想）
 export function createDecider(settings) {
   return {
     available: () => !!(settings().jevKey || settings().ai?.apiKey),
@@ -52,6 +53,10 @@ export function createDecider(settings) {
       if (s.jevKey) return askJev({ apiKey: s.jevKey, model: s.jevModel, state, questions });
       if (s.ai?.apiKey) return askLlm({ ai: s.ai, state, questions });
       throw new Error('沒有 Jev key，也沒有 AI 的 key，做不了決策');
+    },
+    canEscalate: () => !!(settings().jevKey && settings().ai?.apiKey),
+    async escalate(state, questions) {
+      return askLlm({ ai: settings().ai, state, questions });
     },
   };
 }
@@ -77,9 +82,10 @@ const where = (e, win) => {
 const ROLE_NAMES = {
   AXButton: '按鈕', AXLink: '連結', AXTextField: '輸入框', AXTextArea: '多行輸入框', AXComboBox: '下拉輸入框', AXSearchField: '搜尋框',
   AXPopUpButton: '選單按鈕', AXMenuButton: '選單按鈕', AXCheckBox: '勾選框', AXRadioButton: '分頁／選項', AXRow: '清單列', AXCell: '格子',
+  OCRText: '畫面上的字（截圖認出來的，可以點）',
 };
 
-export const describeElement = (e, win) => `${ROLE_NAMES[e.role] ?? e.role}${e.subrole === 'AXSearchField' ? '（搜尋框）' : ''}「${e.label || '沒有標籤'}」（${where(e, win)}）${e.focused ? '，游標在這' : ''}`;
+export const describeElement = (e, win) => `${ROLE_NAMES[e.role] ?? e.role}${e.subrole === 'AXSearchField' ? '（搜尋框）' : ''}「${e.label || '沒有標籤'}」（${where(e, win)}）${e.value ? `，裡面已經有「${e.value}」` : ''}${e.focused ? '，游標在這' : ''}`;
 
 // 游標在輸入框裡也可能是指令（Claude、聊天 app 的游標幾乎都停在輸入框）：把畫面上的東西一起給 Jev 看
 export const inFieldIntentQuestion = () => ({
@@ -108,6 +114,12 @@ export function inFieldVerdict(answers, items) {
   return { command, named, isCommand: command >= IN_FIELD_SURE || (command >= IN_FIELD_NAMED && !!named) };
 }
 
+// 寫訊息前確認：現在打開的對話是不是和這個人的
+export const recipientQuestion = (name) => ({
+  type: 'noul',
+  instructions: `看 \`screen\`（目前畫面，包括截圖認出來的字），現在打開的對話（看對話區上方的標題）是不是和「${name}」這個人的對話？標題可以多了表情符號、大小寫不同或是暱稱的疊字；但只是另一個名字裡剛好包含它（例如找「BU」時的「Bubu科技有限公司」）、群組、或只是左邊清單裡有這個名字，都不算。`,
+});
+
 // 游標不在輸入框：這段字要寫進哪個框
 export function fieldQuestions(candidates, win) {
   const criteria = {};
@@ -124,11 +136,12 @@ export function stepQuestions(elements, win) {
   return {
     action: {
       type: 'choice',
-      instructions: '要達成 `goal`，看 `screen`（目前畫面上可以操作的東西）和 `done_steps`（已經做過的步驟），下一步要做什麼？要找的東西不在 `screen` 上時，先用搜尋：有搜尋框就填 `text`，沒有就點「搜尋／Search」按鈕把搜尋框叫出來。',
+      instructions: '要達成 `goal`，看 `screen`（目前畫面上可以操作的東西，包括截圖認出來的字）和 `done_steps`（已經做過的步驟），下一步要做什麼？要找的東西不在 `screen` 上時，先用搜尋：有搜尋框就填 `text`，沒有就點「搜尋／Search」按鈕把搜尋框叫出來。搜尋框裡已經有 `text`、畫面上也列出結果時，下一步是點結果裡名字對得上的那一個（例如人名、對話名稱、股票），不是再點搜尋框，也不要按 Enter 期待它自己打開。',
       criteria: {
-        click: '點畫面上的某個按鈕、連結、分頁或清單項目（包括把搜尋框叫出來的「搜尋／Search」按鈕）',
+        click: '點畫面上的某個按鈕、連結、分頁、清單項目或截圖認出來的字（包括把搜尋框叫出來的「搜尋／Search」按鈕、搜尋結果裡的人名）',
         fill: '在某個輸入框（多半是搜尋框）填入 `text`',
         enter: '在剛填好字的輸入框按 Enter（送出搜尋）',
+        write: '已經打開和對的人的對話：在訊息框寫入 `message`（只有 `message` 有字時才用；不送出）',
         done: '目標已經達成：畫面已經是使用者要的',
         stuck: '這個畫面做不到，或不知道下一步',
       },

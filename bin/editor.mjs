@@ -35,19 +35,22 @@ mode：
 - delete_last：原稿只是「刪掉剛剛那句」「剛剛那句不要」「delete that」這類指令；text 給空字串。
 - revert_last：原稿只是「換回原文」「不要整理」「用原本的」「revert to original」這類指令；text 給空字串。
 %COMMAND%
-goal、app 只有 command 用得到，其他 mode 給空字串。只輸出 JSON：{"mode": "...", "text": "...", "goal": "", "app": ""}`;
+goal、app、message 只有 command 用得到，其他 mode 給空字串。只輸出 JSON：{"mode": "...", "text": "...", "goal": "", "app": "", "message": ""}`;
 
-const COMMAND_RULE = `- command：要電腦直接操作畫面的指令，只在兩種情況用：
+const COMMAND_RULE = `- command：要電腦直接操作 app 的指令，只在這三種情況用：
   (a) <field> 是空的（游標不在輸入框），而且原稿是叫電腦操作目前 app 畫面的祈使句：進到／打開／切到／點／搜尋／回到／往下捲某個頁面或按鈕（例如「進到台積電的個股頁」「打開設定」「搜尋鴻海」「回到首頁」「切到通知分頁」）；
-  (b) 原稿開頭是「指令」或英文「command」（例如「指令，打開設定」「command, open settings」），不管游標在哪。
-  提醒、訊息、筆記、待辦、對別人或 AI 說的話（例如「明天四點開會記得帶筆電」「幫我看一下為什麼跌」「好啊我晚點看」）都不是指令，一律用 insert，就算游標不在輸入框。
-  goal 用一句話寫清楚要到達的畫面（例如「打開台積電（2330）的個股頁」）；text 是指令裡要找、要搜尋的對象（例如「台積電」「鴻海」），只有像「打開設定」這種沒有對象的才給空字串；
-  app 是要先切過去的 app 名稱（原稿有講才填，例如「Slack」）。第 1 條「不回應」在這個 mode 不適用。`;
+  (b) 原稿開頭是「指令」或英文「command」（例如「指令，打開設定」「command, open settings」），不管游標在哪；
+  (c) 叫電腦幫忙傳訊息給某個人（例如「幫我傳給 BU 說你好」「跟媽媽說我晚點到」「回 Jason 說好」「tell Jason I'm running late」），不管游標在哪。
+  提醒、筆記、待辦、對 AI 說的話（例如「明天四點開會記得帶筆電」「幫我看一下為什麼跌」「好啊我晚點看」）都不是指令，一律用 insert，就算游標不在輸入框。
+  goal 用一句話寫清楚要到達的畫面（例如「打開台積電（2330）的個股頁」「打開和 BU 的對話，在訊息框寫好訊息（不送出）」）；
+  text 是要搜尋的字：要找的東西（例如「台積電」「鴻海」），傳訊息時是對方的名字（例如「BU」），用不到就空字串；
+  message 只有傳訊息時用：要寫給對方的話，照 insert 的規則整理好（例如「你好」）；其他給空字串；
+  app 是要先切過去的 app 名稱（原稿有講才填，例如「LINE」「Slack」）。第 1 條「不回應」在這個 mode 不適用。`;
 
 const SCHEMA = {
   type: 'object',
-  properties: { mode: { type: 'string', enum: MODES }, text: { type: 'string' }, goal: { type: 'string' }, app: { type: 'string' } },
-  required: ['mode', 'text', 'goal', 'app'],
+  properties: { mode: { type: 'string', enum: MODES }, text: { type: 'string' }, goal: { type: 'string' }, app: { type: 'string' }, message: { type: 'string' } },
+  required: ['mode', 'text', 'goal', 'app', 'message'],
   additionalProperties: false,
 };
 
@@ -87,7 +90,7 @@ export function parseResult(raw, { commands = false } = {}) {
   if (body.mode === 'replace_selection' && !body.text.trim()) return null;
   if (body.mode === 'command') {
     if (!String(body.goal ?? '').trim()) return null;
-    return { mode: 'command', text: String(body.text ?? ''), goal: String(body.goal), app: String(body.app ?? '') };
+    return { mode: 'command', text: String(body.text ?? ''), goal: String(body.goal), app: String(body.app ?? ''), message: String(body.message ?? '') };
   }
   return { mode: body.mode, text: body.mode === 'insert' || body.mode === 'replace_selection' ? body.text : '' };
 }

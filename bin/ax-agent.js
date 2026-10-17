@@ -13,9 +13,14 @@
 //   focus   { handle }                → { ok }
 //   read    { handle }                → { value }
 //   elements { pid, limit }           → { window, elements: [{ handle, role, subrole, label, x, y, w, h, focused }] }：畫面上可以操作的東西
-//   act     { pid, handle, action, text } → { result: ok | gone | not-front | failed }：press 點、fill 填字、enter 按 Enter
+//   act     { pid, handle, action, text, x, y } → { result: ok | gone | not-front | failed }：press 點、fill 填字、enter 按 Enter、
+//                                       clickAt 在 (x, y) 點一下滑鼠（截圖認出來的字沒有元件可以按，用這個）
+//   ocr     { pid, ask }              → { permission, items: [{ text, x, y, w, h }] }：截最前面那個視窗（只在記憶體裡）認字
+// 讀不到畫面的 app（例如 LINE：只有視窗按鈕和輸入框，畫面上的字讀不到）：context 的 screen、elements 會自動改用截圖認字補上
 ObjC.import('Cocoa');
 ObjC.import('ApplicationServices');
+ObjC.import('CoreGraphics');
+ObjC.import('Vision');
 
 // AXUIElementRef 在執行期是 CF 物件，全部當 id 傳：JXA 對 AX 的 out 參數型別對不上，自己綁簽名
 ObjC.bindFunction('AXUIElementCreateApplication', ['id', ['int']]);
@@ -24,6 +29,9 @@ ObjC.bindFunction('AXUIElementSetAttributeValue', ['int', ['id', 'id', 'id']]);
 ObjC.bindFunction('AXUIElementCopyParameterizedAttributeValue', ['int', ['id', 'id', 'id', 'void **']]);
 ObjC.bindFunction('AXValueCreate', ['id', ['int', 'void *']]);
 ObjC.bindFunction('AXUIElementPerformAction', ['int', ['id', 'id']]);
+ObjC.bindFunction('CGWindowListCopyWindowInfo', ['id', ['int', 'int']]);
+ObjC.bindFunction('CGPreflightScreenCaptureAccess', ['bool', []]);
+ObjC.bindFunction('CGRequestScreenCaptureAccess', ['bool', []]);
 
 const TEXT_ROLES = ['AXTextField', 'AXTextArea', 'AXComboBox', 'AXSearchField'];
 const K_CFRANGE = 4; // kAXValueCFRangeType
@@ -199,6 +207,75 @@ function screenText(win, chars) {
   return all.length > chars ? all.slice(all.length - chars) : all;
 }
 
+// ---- 讀不到畫面時：截圖認字 ----
+
+const TINY = (e) => e.w < 20 && e.h < 20; // 視窗左上角的關閉、縮放這類小按鈕
+
+// 畫面上能操作的東西，扣掉輸入框和視窗小按鈕，少於 3 個就當這個 app 讀不到畫面（例如 LINE）
+function looksOpaque(list) {
+  return list.filter((e) => !TEXT_ROLES.includes(e.role) && !TINY(e)).length < 3;
+}
+
+// 這個 pid 最前面的一般視窗：{ id, x, y, w, h }
+function windowOf(pid) {
+  const list = $.CGWindowListCopyWindowInfo(1 | 16, 0); // 螢幕上看得到的、不含桌面
+  for (let i = 0; list && i < list.count; i += 1) {
+    const w = list.objectAtIndex(i);
+    if (Number(ObjC.unwrap(w.objectForKey('kCGWindowOwnerPID'))) !== pid) continue;
+    if (Number(ObjC.unwrap(w.objectForKey('kCGWindowLayer'))) !== 0) continue;
+    const b = w.objectForKey('kCGWindowBounds');
+    const n = (k) => Number(ObjC.unwrap(b.objectForKey(k)));
+    return { id: Number(ObjC.unwrap(w.objectForKey('kCGWindowNumber'))), x: n('X'), y: n('Y'), w: n('Width'), h: n('Height') };
+  }
+  return null;
+}
+
+let askedCapture = false;
+// 截視窗（只在記憶體裡）→ macOS 內建文字辨識 → 每段字和它在螢幕上的位置。圖片認完就丟，不存檔、不送出去
+function ocr({ pid, ask = true }) {
+  if (!$.CGPreflightScreenCaptureAccess()) {
+    if (ask && !askedCapture) { askedCapture = true; $.CGRequestScreenCaptureAccess(); }
+    return { permission: false, items: [] };
+  }
+  const win = windowOf(pid);
+  if (!win) return { permission: true, items: [] };
+  // 直接用系統橋接呼叫（自己綁簽名的話 CGRect 參數會傳錯，截成整個螢幕）：只這個視窗、不含陰影、原始解析度
+  const image = $.CGWindowListCreateImage($.CGRectNull, $.kCGWindowListOptionIncludingWindow, win.id,
+    $.kCGWindowImageBoundsIgnoreFraming | $.kCGWindowImageBestResolution);
+  if (!image) return { permission: true, items: [] };
+  const handler = $.VNImageRequestHandler.alloc.initWithCGImageOptions(image, $.NSDictionary.dictionary);
+  const request = $.VNRecognizeTextRequest.alloc.init;
+  request.setRecognitionLevel(0); // 精準：快速模式認不出中文
+  request.setRecognitionLanguages($(['zh-Hant', 'zh-Hans', 'en-US']));
+  request.setUsesLanguageCorrection(true);
+  handler.performRequestsError($([request]), null);
+  const items = [];
+  const results = request.results;
+  for (let i = 0; results && i < results.count; i += 1) {
+    const obs = results.objectAtIndex(i);
+    const text = ObjC.unwrap(obs.topCandidates(1).objectAtIndex(0).string) || '';
+    const b = obs.boundingBox; // 0–1，左下角原點
+    if (!text.trim()) continue;
+    items.push({
+      text: text.trim(),
+      x: win.x + b.origin.x * win.w,
+      y: win.y + (1 - b.origin.y - b.size.height) * win.h,
+      w: b.size.width * win.w,
+      h: b.size.height * win.h,
+    });
+  }
+  items.sort((a, b) => (Math.abs(a.y - b.y) < 6 ? a.x - b.x : a.y - b.y)); // 由上往下、由左往右
+  return { permission: true, items };
+}
+
+function clickAt(x, y) {
+  for (const type of [1, 2]) { // 左鍵按下、放開
+    const ev = $.CGEventCreateMouseEvent($(), type, $.CGPointMake(x, y), 0);
+    $.CGEventPost(0, ev);
+    delay(0.05);
+  }
+}
+
 // ---- 操作 ----
 
 function context({ pid, chars = 400, screen = 0 }) {
@@ -214,7 +291,17 @@ function context({ pid, chars = 400, screen = 0 }) {
   const f = focusedField(app);
   const web = f.el ? webAreaOf(f.el) : null;
   out.url = web ? urlOf(web) : win ? (walk(win, 300).webAreas.map(urlOf).find(Boolean) || '') : '';
-  if (screen && win) out.screen = screenText(win, screen);
+  if (screen && win) {
+    out.screen = screenText(win, screen);
+    out.screenSource = 'ax';
+    // 畫面上的字讀不到、能操作的東西也幾乎沒有：改用截圖認字
+    if (!out.screen && looksOpaque(elements({ pid, limit: 40 }).elements)) {
+      const seen = ocr({ pid });
+      const all = seen.items.map((i) => i.text).join(' ');
+      out.screen = all.length > screen ? all.slice(all.length - screen) : all;
+      out.screenSource = seen.permission ? 'ocr' : 'no-permission';
+    }
+  }
   if (!f.known) return out;
   out.field = { known: true, editable: f.editable, role: f.role, subrole: f.subrole, secure: !!f.secure };
   if (!f.editable) return out;
@@ -405,7 +492,7 @@ function textInside(el, depth = 0) {
   return parts.join(' ');
 }
 
-function elements({ pid, limit = 150 }) {
+function elements({ pid, limit = 150, ocr: withOcr = 'never' }) {
   const app = appElement(pid);
   const win = attr(app, 'AXFocusedWindow') || attr(app, 'AXMainWindow');
   if (!win) return { window: null, elements: [] };
@@ -441,19 +528,41 @@ function elements({ pid, limit = 150 }) {
     if (!frame || frame.w < 4 || frame.h < 4) continue;
     // 只留視窗裡看得到的
     if (box && (frame.x + frame.w < box.x || frame.x > box.x + box.w || frame.y + frame.h < box.y || frame.y > box.y + box.h)) continue;
-    const label = (labelOf(el) || textInside(el)).replace(/\s+/g, ' ').trim().slice(0, 60);
     const role = text(el, 'AXRole');
-    if (!label && !TEXT_ROLES.includes(role)) continue;
-    out.push({ handle: keep(el), role, subrole: text(el, 'AXSubrole'), label, ...frame, focused: flag(el, 'AXFocused') === true });
+    const isField = TEXT_ROLES.includes(role);
+    // 輸入框：名字只看標籤、提示字，裡面已經打的字另外放（不然搜尋框打了「BU」就會被當成叫「BU」的東西）
+    const label = (isField ? labelOf(el) : labelOf(el) || textInside(el)).replace(/\s+/g, ' ').trim().slice(0, 60);
+    if (!label && !isField) continue;
+    const value = isField ? text(el, 'AXValue').replace(/\s+/g, ' ').trim().slice(0, 40) : '';
+    out.push({ handle: keep(el), role, subrole: text(el, 'AXSubrole'), label, value, ...frame, focused: flag(el, 'AXFocused') === true });
     if (out.length >= limit) break;
   }
-  return { window: { ...(box ?? {}), title: text(win, 'AXTitle') }, elements: out };
+  // withOcr：'auto' 讀不到畫面才截圖認字，'always' 一定截（測試用）
+  let source = 'ax';
+  if (withOcr === 'always' || (withOcr === 'auto' && looksOpaque(out))) {
+    const seen = ocr({ pid });
+    source = seen.permission ? 'ocr' : 'no-permission';
+    // 認出來的字落在已經讀得到的元件裡（例如搜尋框裡打的字）就不重複列，免得決策器點到框裡的字
+    const inside = (item) => out.some((e) => {
+      const cx = item.x + item.w / 2;
+      const cy = item.y + item.h / 2;
+      return cx >= e.x && cx <= e.x + e.w && cy >= e.y && cy <= e.y + e.h;
+    });
+    for (const item of seen.items.filter((i) => !inside(i)).slice(0, Math.max(0, limit - out.length))) {
+      out.push({ handle: 0, role: 'OCRText', subrole: '', label: item.text.slice(0, 60), x: item.x, y: item.y, w: item.w, h: item.h, focused: false, ocr: true });
+    }
+  }
+  return { window: { ...(box ?? {}), title: text(win, 'AXTitle') }, elements: out, source };
 }
 
-function act({ pid, handle, action, text: value = '' }) {
+function act({ pid, handle, action, text: value = '', x, y }) {
+  if (action === 'clickAt') {
+    if (!isFront(pid)) return { result: 'not-front' };
+    clickAt(x, y);
+    return { result: 'ok' };
+  }
   const el = handles.get(handle);
-  if (!el && !(action === 'enter' && isFront(pid))) return { result: 'gone' };
-  if (!el) { pressKey(KEY_RETURN, false); return { result: 'ok' }; }
+  if (!el) return { result: 'gone' };
   if (action === 'press') {
     for (const name of ['AXPress', 'AXConfirm', 'AXPick']) {
       if ($.AXUIElementPerformAction(el, $(name)) === 0) return { result: 'ok' };
@@ -477,6 +586,8 @@ function act({ pid, handle, action, text: value = '' }) {
   }
   if (action === 'enter') {
     if (!front) return { result: $.AXUIElementPerformAction(el, $('AXConfirm')) === 0 ? 'ok' : 'not-front' };
+    // 只在游標確實在剛填字的那個框時按：游標在訊息框按 Enter 會把訊息送出去
+    if (flag(el, 'AXFocused') !== true) return { result: 'not-focused' };
     pressKey(KEY_RETURN, false);
     return { result: 'ok' };
   }
@@ -493,6 +604,7 @@ const OPS = {
   read,
   elements,
   act,
+  ocr: (args) => ocr(args),
 };
 
 // ---- 主迴圈：一行一個請求 ----

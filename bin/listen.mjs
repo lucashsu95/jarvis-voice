@@ -438,14 +438,28 @@ async function focusBestField(pid, transcript, ctx) {
   return true;
 }
 
-// AI 整理開著時連畫面上看得到的字一起讀（給 AI 判斷在討論什麼、專有名詞怎麼寫）
-const readContext = (front) => (dryPaste || !front.pid ? null : axCall('context', {
-  pid: front.pid, chars: config.ai.contextChars, screen: aiReady() ? config.ai.screenChars : 0,
-}, 5000));
+// 截圖認字要「螢幕錄影」權限：沒有就提醒一次（小幫手第一次會跳系統詢問）
+let warnedCapture = false;
+function noteCapturePermission(source) {
+  if (source !== 'no-permission' || warnedCapture) return;
+  warnedCapture = true;
+  log('這個 app 讀不到畫面，要截圖認字，但 JarvisVoice 還沒有「螢幕錄影」權限');
+  setError('讀不到畫面的 app（例如 LINE）要截圖認字：系統設定 → 隱私權與安全性 → 螢幕錄影，打開「JarvisVoice」');
+}
+
+// AI 整理開著時連畫面上看得到的字一起讀（給 AI 判斷在討論什麼、專有名詞怎麼寫）；讀不到畫面的 app 會用截圖認字
+async function readContext(front) {
+  if (dryPaste || !front.pid) return null;
+  const ctx = await axCall('context', { pid: front.pid, chars: config.ai.contextChars, screen: aiReady() ? config.ai.screenChars : 0 }, 15000);
+  noteCapturePermission(ctx?.screenSource);
+  return ctx;
+}
 
 // 游標在輸入框時問 Jev：看畫面上有什麼，判斷這句是不是要操作畫面
 async function judgeInField(raw, front, ctx) {
-  const snap = await axCall('elements', { pid: front.pid, limit: 150 }, 3000);
+  // 讀不到畫面的 app（例如 LINE）會用截圖認出來的字補上
+  const snap = await axCall('elements', { pid: front.pid, limit: 150, ocr: 'auto' }, 15000);
+  noteCapturePermission(snap?.source);
   const items = (snap?.elements ?? []).filter((e) => !['AXTextField', 'AXTextArea', 'AXComboBox', 'AXSearchField'].includes(e.role)).slice(0, 120);
   const field = [ctx.field.label, ctx.field.role].filter(Boolean).join('，');
   const answers = await decider.decide({
@@ -483,7 +497,8 @@ async function aiEdit(raw, front, ctx) {
     const verdict = judge ? await judge : null;
     const jevNote = verdict ? `；Jev：是指令的機率 ${verdict.command.toFixed(2)}${verdict.named ? `，講到「${verdict.named.label}」` : ''}` : '';
     log(`AI 整理（${result.model}，${result.ms} ms，${result.mode}）：${result.mode === 'command' ? result.goal : result.text || '（無）'}${jevNote}`);
-    if (result.mode === 'command' && verdict && !verdict.isCommand && !inField) {
+    // AI 說是指令、Jev 說不是：當成要打的字（開頭講「指令」或「command」的照 AI）
+    if (result.mode === 'command' && verdict && !verdict.isCommand && !/^\s*(指令|command)/i.test(raw)) {
       log('AI 說是指令、Jev 說不是：當成要打的字，貼原稿');
       return null;
     }
@@ -509,7 +524,7 @@ const openApp = (name) => new Promise((resolve) => {
 
 // 第三層（指令）：直接操作 app
 async function runVoiceCommand(result, raw, front, ctx) {
-  log(`指令：${result.goal}${result.text ? `（要填「${result.text}」）` : ''}${result.app ? `，先切到 ${result.app}` : ''}`);
+  log(`指令：${result.goal}${result.text ? `（要搜尋「${result.text}」）` : ''}${result.message ? `（要寫「${result.message}」，不送出）` : ''}${result.app ? `，先切到 ${result.app}` : ''}`);
   if (dryPaste) {
     emit({ type: 'command', goal: result.goal, text: result.text, app: result.app, dry: true });
     return '';
@@ -517,7 +532,7 @@ async function runVoiceCommand(result, raw, front, ctx) {
   let outcome;
   try {
     outcome = await runCommand({
-      ax, decider, log, frontApp, openApp, goal: result.goal, text: result.text, app: result.app, context: { app: ctx?.app ?? '' },
+      ax, decider, log, frontApp, openApp, goal: result.goal, text: result.text, message: result.message, app: result.app, context: { app: ctx?.app ?? '' },
       stopped: () => existsSync(PAUSED),
     });
   } catch (err) {
