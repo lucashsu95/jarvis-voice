@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// 語音輸入的常駐程式（由選單列小程式「語音輸入」帶起來）：自動收音，講完一句（停頓約 0.85 秒）
+// 語音輸入的常駐程式（由選單列小程式「全語音輸入」帶起來）：自動收音，講完一句（停頓約 0.85 秒）
 // 就把定稿貼進目前游標所在的輸入框——在哪個 app、哪個欄位，字就進哪裡；只貼不送出。
 // 游標不在輸入框（例如在看網頁本身）就不貼；開會、通話的 app 在最前面或按了暫停時關麥克風。
 // 整台電腦同時只跑一個（鎖檔）。
@@ -339,10 +339,10 @@ async function drainPaste() {
       const out = (await exec('/usr/bin/osascript', args, 5000)).trim();
       if (out === 'no-accessibility') {
         // 放回佇列：權限一開就貼；等超過一分鐘才丟（選單「複製上一句」還拿得到）
-        if (!askedAccessibility) log('貼不進去：「語音輸入」還沒有輔助使用權限，開了就會補貼：', item.text);
+        if (!askedAccessibility) log('貼不進去：「全語音輸入」還沒有輔助使用權限，開了就會補貼：', item.text);
         askedAccessibility = true;
         pasteQueue.unshift(item);
-        setError('沒有「輔助使用」權限，字貼不進去：系統設定 → 隱私權與安全性 → 輔助使用，打開「語音輸入」');
+        setError('沒有「輔助使用」權限，字貼不進去：系統設定 → 隱私權與安全性 → 輔助使用，打開「全語音輸入」');
         break;
       }
       if (out.startsWith('not-text-field')) {
@@ -404,10 +404,10 @@ async function main() {
   }
   if (appMode) {
     try { if (statSync(LOG).size > 1_000_000) writeFileSync(LOG, ''); } catch { /* 還沒有 log */ }
-    // 沒權限就在啟動時跳系統詢問，「語音輸入」才會出現在輔助使用清單裡
+    // 沒權限就在啟動時跳系統詢問，「全語音輸入」才會出現在輔助使用清單裡
     const access = (await exec('/usr/bin/osascript', ['-l', 'JavaScript', join(HERE, 'paste.js'), '', '--check', '--ask'], 5000)).trim();
     if (access !== 'trusted') askedAccessibility = true;
-    log(`輔助使用權限：${access === 'trusted' ? '有' : '沒有（字貼不進去：系統設定 → 隱私權與安全性 → 輔助使用，打開「語音輸入」）'}`);
+    log(`輔助使用權限：${access === 'trusted' ? '有' : '沒有（字貼不進去：系統設定 → 隱私權與安全性 → 輔助使用，打開「全語音輸入」）'}`);
   }
   process.on('SIGTERM', () => shutdown(0));
   process.on('SIGINT', () => shutdown(0));

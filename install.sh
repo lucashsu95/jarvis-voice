@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
-# 語音輸入（macOS）：安裝或更新。
+# 全語音輸入（macOS）：安裝或更新。
 #   ./install.sh                 用設定檔現在的引擎（第一次裝是 local）
 #   ./install.sh local           本機辨識（免費，聲音不離開這台電腦）
 #   ./install.sh openai          自己的 OpenAI key，預設一般轉寫 gpt-transcribe（OPENAI_API_KEY 有設就順手寫進設定檔）
 #   ./install.sh parallelsandbox 平行沙盒帳號
-# 會做：裝套件、補模型、寫設定、包出「語音輸入.app」放進 ~/Applications、設成開機自動啟動、打開它。
+# 會做：裝套件、補模型、寫設定、包出「全語音輸入.app」放進 ~/Applications、設成開機自動啟動、打開它。
 set -euo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 STATE="${VOICE_DICTATION_STATE_DIR:-$HOME/.voice-dictation}"
 CONFIG="$STATE/config.json"
-APP="${VOICE_DICTATION_APP:-$HOME/Applications/語音輸入.app}"
+APP="${VOICE_DICTATION_APP:-$HOME/Applications/全語音輸入.app}"
 AGENT="$HOME/Library/LaunchAgents/com.urusa.voice-dictation.plist"
 MODEL_NAME="sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17"
 MODEL_URL="https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/$MODEL_NAME.tar.bz2"
@@ -94,6 +94,11 @@ if command -v claude >/dev/null && claude plugin list 2>/dev/null | grep -q "voi
 fi
 
 say "選單列小程式：$APP"
+# 舊名稱「語音輸入.app」改名過來（同一個 app，搬過來權限不用重給）
+if [[ -d "$HOME/Applications/語音輸入.app" && ! -d "$APP" ]]; then
+  pkill -f "$HOME/Applications/語音輸入.app/Contents/MacOS/applet" 2>/dev/null || true
+  mv "$HOME/Applications/語音輸入.app" "$APP"
+fi
 pkill -f "$APP/Contents/MacOS/applet" 2>/dev/null || true
 # 小程式本身沒變就不重包：重包會換簽名，麥克風與輔助使用權限得重新允許
 STAMP="$(printf '%s\n%s\n%s\n%s\n' "$(shasum -a 256 "$DIR/app/main.js" "$DIR/app/build.sh" | cut -d' ' -f1 | tr '\n' ' ')" "$NODE" "$DIR" "$STATE" | shasum -a 256 | cut -d' ' -f1)"
@@ -125,9 +130,9 @@ open "$APP"
 say "完成：選單列出現麥克風圖示就是在跑了"
 cat <<EOF
   第一次用要給兩個權限（只要一次）：
-  1. 麥克風：跳出「語音輸入想要取用麥克風」時按允許。
-  2. 輔助使用（貼上要用）：第一次講話時會跳出詢問，到「系統設定 → 隱私權與安全性 → 輔助使用」打開「語音輸入」。
+  1. 麥克風：跳出「全語音輸入想要取用麥克風」時按允許。
+  2. 輔助使用（貼上要用）：第一次講話時會跳出詢問，到「系統設定 → 隱私權與安全性 → 輔助使用」打開「全語音輸入」。
 
   第二步：請你常用的 AI 幫你填專有名詞並測試，直接把這句話貼給它：
-    請照 $DIR/AI_SETUP.md 幫我設定語音輸入的專有名詞，並跑測試給我看結果。
+    請照 $DIR/AI_SETUP.md 幫我設定全語音輸入的專有名詞，並跑測試給我看結果。
 EOF

@@ -1,9 +1,10 @@
-// 「語音輸入」選單列的介面與常駐程式管理。由 app/main.js（包進 .app 的外殼）啟動時讀進來執行，
+// 「全語音輸入」選單列的介面與常駐程式管理。由 app/main.js（包進 .app 的外殼）啟動時讀進來執行，
 // 所以改這個檔不用重包 app，麥克風與輔助使用權限也不用重給；改完從選單「結束」再打開 app 就生效。
 // 帶起常駐程式 bin/listen.mjs（它掛了 3 秒後自己重開），狀態全顯示在選單列的圖示上。
-// 圖示固定寬度、不加字（加字會讓旁邊的圖示跳來跳去），顏色交給系統（跟其他選單列圖示同色），只換形狀：
-//   實心麥克風＝收音中、聲波＝聽到你講話、打勾＝剛貼好、驚嘆號＝游標不在輸入框所以沒貼、
-//   劃掉的麥克風＝暫停、空心麥克風＝待命、三角形＝出錯（點開選單看原因）。
+// 圖示是「全語音輸入」自己的：單循環箭頭包住三條聲波（自動＋聲音）。固定寬度、不加字（加字會讓旁邊的
+// 圖示跳來跳去），顏色交給系統（範本圖，跟其他選單列圖示同色），只換箭頭裡面的東西：
+//   三條聲波＝收音中、聲波變高＝聽到你講話、打勾＝剛貼好、叉叉＝游標不在輸入框所以沒貼、
+//   ‖＝暫停、聲波變淡＝待命（最前面的 app 不收音）、驚嘆號＝出錯（點開選單看原因）。
 // BUILD（{ node, repo, state }）由外殼放在全域。
 const LISTEN = `${BUILD.repo}/bin/listen.mjs`;
 const NODE_DIR = BUILD.node.replace(/\/[^/]*$/, '');
@@ -31,21 +32,81 @@ function label() {
     case 'standby': return `待命${name}：最前面的 app 不收音`;
     case 'paused': return `已暫停${name}`;
     case 'error': return `出錯：${view.message}`;
-    case 'already-running': return '已經有另一個語音輸入在跑，等它結束後接手';
+    case 'already-running': return '已經有另一個全語音輸入在跑，等它結束後接手';
     case 'off': return '常駐程式沒在跑，重新啟動中…';
     default: return '啟動中…';
   }
 }
 
-// 選單列圖示要用哪個 SF Symbol，以及滑鼠停上去的說明
+// ── 選單列圖示：18×18 點的格子（左下角原點），黑色加透明度畫，系統再依選單列換成白或黑 ──
+
+function iconPath(points) {
+  const p = $.NSBezierPath.bezierPath;
+  points.forEach(([x, y], i) => (i ? p.lineToPoint($.NSMakePoint(x, y)) : p.moveToPoint($.NSMakePoint(x, y))));
+  return p;
+}
+
+function iconBar(cx, h, alpha = 1) {
+  $.NSColor.colorWithWhiteAlpha(0, alpha).set;
+  $.NSBezierPath.bezierPathWithRoundedRectXRadiusYRadius($.NSMakeRect(cx - 0.75, 9 - h / 2, 1.5, h), 0.75, 0.75).fill;
+}
+
+function iconStroke(points, width = 1.5) {
+  $.NSColor.blackColor.set;
+  const p = iconPath(points);
+  p.setLineWidth(width);
+  p.setLineCapStyle(1); // 圓頭
+  p.setLineJoinStyle(1);
+  p.stroke;
+}
+
+// kind：listening、speaking、standby、paused、pasted、nofield、error
+function drawGlyph(kind) {
+  $.NSColor.blackColor.set;
+  // 單循環箭頭：圓心 (9, 9)、半徑 6.9，缺口在右上。箭頭底邊中點在 50°，尖端落在圓上 80°，
+  // 圓線畫到 52°（藏在箭頭裡），另一頭停在 100°，跟箭頭尖端留一段空隙
+  const R = 6.9;
+  const at = (deg) => [9 + R * Math.cos((deg * Math.PI) / 180), 9 + R * Math.sin((deg * Math.PI) / 180)];
+  const ring = $.NSBezierPath.bezierPath;
+  ring.appendBezierPathWithArcWithCenterRadiusStartAngleEndAngleClockwise($.NSMakePoint(9, 9), R, 52, 100, true);
+  ring.setLineWidth(1.5);
+  ring.stroke;
+  const [bx, by] = at(50);
+  const [tx, ty] = at(80);
+  const len = Math.hypot(tx - bx, ty - by);
+  const [nx, ny] = [(ty - by) / len, -(tx - bx) / len]; // 跟箭頭方向垂直
+  const half = 2.3;
+  const tip = iconPath([[tx, ty], [bx + nx * half, by + ny * half], [bx - nx * half, by - ny * half]]);
+  tip.closePath;
+  tip.fill;
+  if (kind === 'speaking') [[6.6, 3.8], [9, 7.2], [11.4, 4.8]].forEach(([x, h]) => iconBar(x, h));
+  else if (kind === 'standby') [[6.6, 2.6], [9, 5.2], [11.4, 3.2]].forEach(([x, h]) => iconBar(x, h, 0.35));
+  else if (kind === 'paused') { iconBar(7.4, 5.4); iconBar(10.6, 5.4); }
+  else if (kind === 'pasted') iconStroke([[6.3, 9.1], [8.3, 7.1], [11.9, 10.9]], 1.6);
+  else if (kind === 'nofield') { iconStroke([[6.9, 11.1], [11.1, 6.9]]); iconStroke([[6.9, 6.9], [11.1, 11.1]]); }
+  else if (kind === 'error') { iconBar(9, 5.2); $.NSBezierPath.bezierPathWithOvalInRect($.NSMakeRect(8.2, 4.7, 1.6, 1.6)).fill; }
+  else [[6.6, 2.6], [9, 5.2], [11.4, 3.2]].forEach(([x, h]) => iconBar(x, h));
+}
+
+const iconCache = {};
+function iconImage(kind) {
+  if (iconCache[kind]) return iconCache[kind];
+  const image = $.NSImage.alloc.initWithSize($.NSMakeSize(18, 18));
+  image.lockFocus;
+  drawGlyph(kind);
+  image.unlockFocus;
+  image.setTemplate(true);
+  iconCache[kind] = image;
+  return image;
+}
+
+// 選單列圖示要畫哪一種，以及滑鼠停上去的說明
 function look() {
-  if (flash && Date.now() < flash.until) {
-    return flash.kind === 'pasted' ? ['checkmark.circle.fill', '已貼上'] : ['exclamationmark.circle', '游標不在輸入框，沒貼'];
-  }
-  if (view.state === 'listening') return hearing ? ['waveform', '說話中'] : ['mic.fill', ''];
-  if (view.state === 'paused') return ['mic.slash', ''];
-  if (view.state === 'error') return ['exclamationmark.triangle', ''];
-  return ['mic', ''];
+  if (flash && Date.now() < flash.until) return flash.kind === 'pasted' ? ['pasted', '已貼上'] : ['nofield', '游標不在輸入框，沒貼'];
+  if (view.state === 'listening') return hearing ? ['speaking', '說話中'] : ['listening', ''];
+  if (view.state === 'paused') return ['paused', ''];
+  if (view.state === 'error') return ['error', ''];
+  return ['standby', ''];
 }
 
 // 測試用：目前選單列圖示旁的字與選單第一行
@@ -73,11 +134,9 @@ function dumpFrame() {
 
 function refresh() {
   if (!statusItem) return;
-  const [symbol, hint] = look();
-  const image = $.NSImage.imageWithSystemSymbolNameAccessibilityDescription(symbol, '語音輸入');
-  image.setTemplate(true); // 範本圖：顏色由系統依選單列決定
-  statusItem.button.setImage(image);
-  statusItem.button.setToolTip(`語音輸入：${hint || label()}`);
+  const [kind, hint] = look();
+  statusItem.button.setImage(iconImage(kind));
+  statusItem.button.setToolTip(`全語音輸入：${hint || label()}`);
   statusLine.setTitle(label());
   toggleItem.setTitle(view.state === 'paused' ? '繼續收音' : '暫停收音');
 }
@@ -250,7 +309,7 @@ function startUI() {
   menu.addItem(menuItem('編輯設定檔…', 'openConfig:'));
   menu.addItem(menuItem('說明', 'openGuide:'));
   menu.addItem($.NSMenuItem.separatorItem);
-  menu.addItem(menuItem('結束語音輸入', 'quitApp:'));
+  menu.addItem(menuItem('結束全語音輸入', 'quitApp:'));
   statusItem.setMenu(menu);
   refresh();
   $.NSTimer.scheduledTimerWithTimeIntervalTargetSelectorUserInfoRepeats(2, controller, 'dumpFrame:', $(), false);

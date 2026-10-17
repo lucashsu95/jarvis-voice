@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# 語音輸入：解除安裝。設定、詞彙、模型留在 ~/.voice-dictation，要刪自己刪。
+# 全語音輸入：解除安裝。設定、詞彙、模型留在 ~/.voice-dictation，要刪自己刪。
 set -euo pipefail
 
 STATE="${VOICE_DICTATION_STATE_DIR:-$HOME/.voice-dictation}"
-APP="${VOICE_DICTATION_APP:-$HOME/Applications/語音輸入.app}"
+APP="${VOICE_DICTATION_APP:-$HOME/Applications/全語音輸入.app}"
 AGENT="$HOME/Library/LaunchAgents/com.urusa.voice-dictation.plist"
 
-pkill -f "$APP/Contents/MacOS/applet" 2>/dev/null && echo "已關掉語音輸入" || true
+pkill -f "$APP/Contents/MacOS/applet" 2>/dev/null && echo "已關掉全語音輸入" || true
 if [[ -f "$STATE/listener.lock" ]]; then
   PID="$(cat "$STATE/listener.lock" 2>/dev/null || true)"
   if [[ -n "$PID" ]] && ps -p "$PID" -o command= 2>/dev/null | grep -q listen.mjs; then

@@ -2,7 +2,7 @@
   "name": "voice-dictation",
   "version": "1.0.0",
   "private": true,
-  "description": "macOS 語音輸入：開著就自動收音，講完一句就貼進游標所在的輸入框（任何 app）",
+  "description": "全語音輸入（macOS）：開著就自動收音，講完一句就貼進游標所在的輸入框（任何 app）",
   "type": "module",
   "license": "MIT",
   "scripts": {
