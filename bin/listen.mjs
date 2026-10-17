@@ -543,7 +543,9 @@ async function deliver(item, front) {
   const inField = !ctx?.field.known || ctx.field.editable;
   // 不在輸入框、也沒開自動找或指令：不用送 AI
   if (!inField && !config.autoFocus && !commandsOn()) return skipNoField(raw, ctx.field.role);
-  const result = item.kind === 'segment' ? await aiEdit(raw, front, ctx) : null;
+  // 上次已經整理好、只是當時寫不進去：直接用，不再問一次 AI
+  if (item.kind === 'segment' && !('result' in item)) item.result = await aiEdit(raw, front, ctx);
+  const result = item.kind === 'segment' ? item.result : null;
   if (result?.mode === 'command') return runVoiceCommand(result, raw, front, ctx);
   if (result?.mode === 'delete_last') { await replaceLast(front, '', '刪掉剛剛那段'); return ''; }
   if (result?.mode === 'revert_last') {
@@ -568,7 +570,8 @@ async function deliver(item, front) {
     return 'retry';
   }
   if (pasted?.result === 'not-front') {
-    log('要寫的時候最前面換了 app，等一下再寫');
+    if (!item.notFront) log('要寫的時候最前面換了 app，等它回到最前面再寫');
+    item.notFront = true;
     return 'retry';
   }
   if (pasted?.result?.startsWith('not-text-field')) {

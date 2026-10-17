@@ -2,7 +2,7 @@
 // 不送任何按鍵：測試視窗不在最前面，貼上要回 not-front，填字改成直接設值。跑測試的程式沒有「輔助使用」權限就跳過。
 
 import assert from 'node:assert/strict';
-import { spawn } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import { join } from 'node:path';
 import { after, test } from 'node:test';
 import { createAx } from '../bin/ax.mjs';
@@ -11,6 +11,27 @@ import { createDecider } from '../bin/decide.mjs';
 
 const ax = createAx();
 after(() => ax.close());
+
+// macOS 新開的視窗會不會跑到最前面不一定：要在背景的就把原本的 app 叫回來，要在前景的就用 AX 設成最前面，等確定了再動作
+const lsappinfo = (...args) => execFileSync('/usr/bin/lsappinfo', args).toString();
+const frontInfo = () => lsappinfo('info', '-only', 'bundleid', '-only', 'pid', lsappinfo('front').trim());
+const frontPid = () => Number(frontInfo().match(/"pid"=(\d+)/)?.[1] ?? 0);
+const startBundle = frontInfo().match(/"CFBundleIdentifier"="([^"]*)"/)?.[1];
+async function waitFront(check) {
+  for (let i = 0; i < 30 && !check(frontPid()); i += 1) await new Promise((r) => setTimeout(r, 100));
+  return check(frontPid());
+}
+async function sendToBack(pid) {
+  if (startBundle) execFileSync('/usr/bin/open', ['-b', startBundle]);
+  return waitFront((p) => p !== pid);
+}
+async function bringToFront(pid) {
+  execFileSync('/usr/bin/osascript', ['-l', 'JavaScript', '-e', `ObjC.import('ApplicationServices');
+    ObjC.bindFunction('AXUIElementCreateApplication', ['id', ['int']]);
+    ObjC.bindFunction('AXUIElementSetAttributeValue', ['int', ['id', 'id', 'id']]);
+    $.AXUIElementSetAttributeValue($.AXUIElementCreateApplication(${pid}), $('AXFrontmost'), $.NSNumber.numberWithBool(true));`]);
+  return waitFront((p) => p === pid);
+}
 const trusted = process.platform === 'darwin' && (await ax.call('check', { ask: false }).catch(() => ({}))).trusted;
 
 test('AX 小幫手：讀上下文、找輸入框、對焦、列元件；不在前景不貼', { skip: !trusted && '沒有輔助使用權限', timeout: 30_000 }, async () => {
@@ -24,6 +45,7 @@ test('AX 小幫手：讀上下文、找輸入框、對焦、列元件；不在�
       await new Promise((r) => setTimeout(r, 150));
     }
     assert.equal(ctx.window, '全語音輸入測試視窗');
+    assert.ok(await sendToBack(pid), '測試視窗要在背景');
     assert.deepEqual([ctx.field.role, ctx.field.label, ctx.field.before, ctx.field.after], ['AXTextArea', '訊息', '今天的待辦：', '']);
 
     const found = await ax.call('targets', { pid });
@@ -63,6 +85,7 @@ async function openStockWindow() {
     if (r?.elements?.length) break;
     await new Promise((res) => setTimeout(res, 150));
   }
+  assert.ok(await sendToBack(win.pid), '看盤測試視窗要在背景');
   return win;
 }
 
@@ -106,5 +129,36 @@ test('指令模式 + 真的 Jev', { skip: (!trusted && '沒有輔助使用權限
     assert.equal(await title(win.pid), '設定');
   } finally {
     win.kill();
+  }
+});
+
+// 會搶前景約 2 秒，要 VOICE_DICTATION_FOCUS_TESTS=1 才跑：測試視窗到最前面時真的貼得進去、換得回來
+test('貼上與換回原文（測試視窗在最前面）', {
+  skip: (!trusted && '沒有輔助使用權限') || (!process.env.VOICE_DICTATION_FOCUS_TESTS && '會搶前景，要 VOICE_DICTATION_FOCUS_TESTS=1'),
+  timeout: 30_000,
+}, async () => {
+  const win = spawn('/usr/bin/osascript', ['-l', 'JavaScript', join(import.meta.dirname, 'fixtures', 'test-window.js'), '--empty'], { stdio: 'ignore' });
+  try {
+    const pid = win.pid;
+    for (let i = 0; i < 40; i += 1) {
+      const ctx = await ax.call('context', { pid }).catch(() => null);
+      if (ctx?.field?.editable) break;
+      await new Promise((r) => setTimeout(r, 150));
+    }
+    assert.ok(await bringToFront(pid), '測試視窗要到最前面');
+    const pasted = await ax.call('paste', { pid, text: '我們明天四點開會。' });
+    assert.equal(pasted.result, 'ok');
+    await new Promise((r) => setTimeout(r, 300));
+    const { handle } = (await ax.call('context', { pid })).field;
+    assert.equal((await ax.call('read', { handle })).value, '我們明天四點開會。');
+    assert.equal((await ax.call('replace', { pid, old: '我們明天四點開會。', text: '嗯我們明天三點不對四點開會。' })).result, 'ok');
+    await new Promise((r) => setTimeout(r, 300));
+    assert.equal((await ax.call('read', { handle })).value, '嗯我們明天三點不對四點開會。');
+    assert.equal((await ax.call('replace', { pid, old: '嗯我們明天三點不對四點開會。', text: '' })).result, 'ok');
+    await new Promise((r) => setTimeout(r, 200));
+    assert.equal((await ax.call('read', { handle })).value, '');
+  } finally {
+    win.kill();
+    if (startBundle) execFileSync('/usr/bin/open', ['-b', startBundle]);
   }
 });

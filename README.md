@@ -165,7 +165,9 @@ AI 會從你打過的字裡找出常講的詞，寫進 `~/.voice-dictation/vocab
 
 ```bash
 npm install
-npm test
+npm test                                  # 不送按鍵、不搶前景
+VOICE_DICTATION_FOCUS_TESTS=1 npm test    # 再加跑「測試視窗在最前面時真的貼得進去、換得回來」（會搶前景約 2 秒）
+TYPESAFE_API_KEY=... npm test             # 再加跑真的 Jev 操作測試用看盤視窗
 ```
 
 ## 解除安裝

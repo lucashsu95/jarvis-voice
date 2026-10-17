@@ -42,6 +42,18 @@ ObjC.registerSubclass({
 function run() {
   const app = $.NSApplication.sharedApplication;
   app.setActivationPolicy(0);
+  // 在前景時填字靠 Cmd+A、Cmd+V，要有「編輯」選單的快捷鍵才有反應
+  const main = $.NSMenu.alloc.init;
+  const appItem = $.NSMenuItem.alloc.init;
+  appItem.setSubmenu($.NSMenu.alloc.init);
+  main.addItem(appItem);
+  const editItem = $.NSMenuItem.alloc.init;
+  const edit = $.NSMenu.alloc.initWithTitle('編輯');
+  edit.addItemWithTitleActionKeyEquivalent('貼上', 'paste:', 'v');
+  edit.addItemWithTitleActionKeyEquivalent('全選', 'selectAll:', 'a');
+  editItem.setSubmenu(edit);
+  main.addItem(editItem);
+  app.setMainMenu(main);
   globalThis.controller = $.StockWindowController.alloc.init;
   win = $.NSWindow.alloc.initWithContentRectStyleMaskBackingDefer($.NSMakeRect(260, 240, 520, 360), 1 | 2, 2, false);
   win.setTitle('自選股');

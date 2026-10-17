@@ -8,9 +8,25 @@ function field(cls, frame, placeholder) {
   return f;
 }
 
+// Cmd+V、Cmd+A 是靠「編輯」選單的快捷鍵觸發的：沒有選單，貼上的按鍵不會有反應（真的 app 都有）
+function editMenu(app) {
+  const main = $.NSMenu.alloc.init;
+  const appItem = $.NSMenuItem.alloc.init;
+  appItem.setSubmenu($.NSMenu.alloc.init);
+  main.addItem(appItem);
+  const editItem = $.NSMenuItem.alloc.init;
+  const edit = $.NSMenu.alloc.initWithTitle('編輯');
+  edit.addItemWithTitleActionKeyEquivalent('貼上', 'paste:', 'v');
+  edit.addItemWithTitleActionKeyEquivalent('全選', 'selectAll:', 'a');
+  editItem.setSubmenu(edit);
+  main.addItem(editItem);
+  app.setMainMenu(main);
+}
+
 function run(argv) {
   const app = $.NSApplication.sharedApplication;
   app.setActivationPolicy(0); // 一般 app，才能到最前面收鍵盤
+  editMenu(app);
   const win = $.NSWindow.alloc.initWithContentRectStyleMaskBackingDefer($.NSMakeRect(200, 200, 560, 420), 1 | 2, 2, false);
   win.setTitle('全語音輸入測試視窗');
   const view = win.contentView;

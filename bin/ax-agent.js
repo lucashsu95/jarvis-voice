@@ -22,8 +22,6 @@ ObjC.bindFunction('AXUIElementCopyAttributeValue', ['int', ['id', 'id', 'void **
 ObjC.bindFunction('AXUIElementSetAttributeValue', ['int', ['id', 'id', 'id']]);
 ObjC.bindFunction('AXUIElementCopyParameterizedAttributeValue', ['int', ['id', 'id', 'id', 'void **']]);
 ObjC.bindFunction('AXValueCreate', ['id', ['int', 'void *']]);
-ObjC.bindFunction('AXUIElementCreateSystemWide', ['id', []]);
-ObjC.bindFunction('CFEqual', ['bool', ['id', 'id']]);
 ObjC.bindFunction('AXUIElementPerformAction', ['int', ['id', 'id']]);
 
 const TEXT_ROLES = ['AXTextField', 'AXTextArea', 'AXComboBox', 'AXSearchField'];
@@ -261,10 +259,10 @@ function pasteText(value, dry) {
   return placed;
 }
 
-// 按鍵只會送到最前面的 app：送之前確認最前面的就是要寫的那個，不然 Cmd+V、Delete 會落到別的 app
+// 按鍵只會送到最前面的 app：送之前確認最前面的就是要寫的那個，不然 Cmd+V、Delete 會落到別的 app。
+// 問 app 自己的 AXFrontmost（系統層的 AXFocusedApplication 在這裡讀不到）
 function isFront(pid) {
-  const focusedApp = attr($.AXUIElementCreateSystemWide(), 'AXFocusedApplication');
-  return !!focusedApp && $.CFEqual(focusedApp, $.AXUIElementCreateApplication(pid));
+  return flag($.AXUIElementCreateApplication(pid), 'AXFrontmost') === true;
 }
 
 function trusted(ask) {
