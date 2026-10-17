@@ -1,7 +1,7 @@
-// 「全語音輸入」選單列的介面與常駐程式管理。由 app/main.js（包進 .app 的外殼）啟動時讀進來執行，
+// 「JarvisVoice」選單列的介面與常駐程式管理。由 app/main.js（包進 .app 的外殼）啟動時讀進來執行，
 // 所以改這個檔不用重包 app，麥克風與輔助使用權限也不用重給；改完從選單「結束」再打開 app 就生效。
 // 帶起常駐程式 bin/listen.mjs（它掛了 3 秒後自己重開），狀態全顯示在選單列的圖示上。
-// 圖示是「全語音輸入」自己的：單循環箭頭包住三條聲波（自動＋聲音）。固定寬度、不加字（加字會讓旁邊的
+// 圖示是「JarvisVoice」自己的：單循環箭頭包住三條聲波（自動＋聲音）。固定寬度、不加字（加字會讓旁邊的
 // 圖示跳來跳去），顏色交給系統（範本圖，跟其他選單列圖示同色），只換箭頭裡面的東西：
 //   三條聲波＝收音中、聲波變高＝聽到你講話、打勾＝剛貼好、叉叉＝游標不在輸入框所以沒貼、
 //   ‖＝暫停、聲波變淡＝待命（最前面的 app 不收音）、驚嘆號＝出錯（點開選單看原因）。
@@ -44,7 +44,7 @@ function label() {
     case 'standby': return `待命${name}：最前面的 app 不收音`;
     case 'paused': return `已暫停${name}`;
     case 'error': return `出錯：${view.message}`;
-    case 'already-running': return '已經有另一個全語音輸入在跑，等它結束後接手';
+    case 'already-running': return '已經有另一個 JarvisVoice 在跑，等它結束後接手';
     case 'off': return '常駐程式沒在跑，重新啟動中…';
     default: return '啟動中…';
   }
@@ -159,7 +159,7 @@ function refresh() {
   if (!statusItem) return;
   const [kind, hint] = look();
   statusItem.button.setImage(iconImage(kind));
-  statusItem.button.setToolTip(`全語音輸入：${hint || label()}`);
+  statusItem.button.setToolTip(`JarvisVoice：${hint || label()}`);
   statusLine.setTitle(label());
   toggleItem.setTitle(view.state === 'paused' ? '繼續收音' : '暫停收音');
 }
@@ -404,7 +404,7 @@ function startUI() {
   menu.addItem(menuItem('編輯設定檔…', 'openConfig:'));
   menu.addItem(menuItem('說明', 'openGuide:'));
   menu.addItem($.NSMenuItem.separatorItem);
-  menu.addItem(menuItem('結束全語音輸入', 'quitApp:'));
+  menu.addItem(menuItem('結束 JarvisVoice', 'quitApp:'));
   statusItem.setMenu(menu);
   refreshSettings();
   refresh();

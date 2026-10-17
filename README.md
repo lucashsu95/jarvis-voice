@@ -1,6 +1,6 @@
-# Jarvis Voice：全語音輸入（macOS）
+# JarvisVoice：自動語音輸入與操作
 
-<img src="design/icon-big.png" width="96" alt="全語音輸入的選單列圖示：循環箭頭包住三條聲波">
+<img src="design/icon-big.png" width="96" alt="JarvisVoice 的選單列圖示：循環箭頭包住三條聲波">
 
 macOS 選單列小程式。開著就自動收音，你講的話直接寫進正在用的 app：Claude、ChatGPT、瀏覽器、LINE、備忘錄都可以。只寫不送出，要送自己按 Enter。
 
@@ -8,7 +8,7 @@ macOS 選單列小程式。開著就自動收音，你講的話直接寫進正�
 
 | 層 | 什麼時候寫 | 寫什麼 | 寫到哪 |
 |---|---|---|---|
-| 1. 全語音輸入（裝好就有） | 講完一句（停約 0.85 秒） | 轉寫出來的原話 | 游標所在的輸入框；游標不在輸入框就不寫 |
+| 1. 語音輸入（裝好就有） | 講完一句（停約 0.85 秒） | 轉寫出來的原話 | 游標所在的輸入框；游標不在輸入框就不寫 |
 | 2. AI 整理（像 [Typeless](https://www.typeless.com)） | 講完一段（停約 2 秒） | AI 整理過的字：去贅字、改口只留結果、條列、依 app 調語氣、照你的專有名詞。AI 會參考游標前後的字、app、視窗、網址，可以選 OpenAI、DeepSeek、Claude | 同第 1 層 |
 | 3. 自動找輸入框、語音指令 | 同第 2 層 | 同第 2 層 | 游標不在輸入框時，改成挑出視窗裡該寫的輸入框寫進去。講的是「進到台積電的個股頁」這類指令，就不寫字，直接操作最前面的 app。由 [Jev](https://typesafe.ai) 決定（沒有 Jev 就改問 AI） |
 
@@ -26,10 +26,10 @@ cd ~/jarvis-voice
 ./install.sh openai   # 用 OpenAI 轉寫（最準）；不想花錢就用 ./install.sh local
 ```
 
-裝完選單列會出現「全語音輸入」的圖示（循環箭頭包住三條聲波）。第一次用要給兩個權限，都只要一次：
+裝完選單列會出現「JarvisVoice」的圖示（循環箭頭包住三條聲波）。第一次用要給兩個權限，都只要一次：
 
-1. **麥克風**：跳出「全語音輸入想要取用麥克風」時按允許。
-2. **輔助使用**（貼上要用）：第一次講話時會跳出詢問，到「系統設定 → 隱私權與安全性 → 輔助使用」打開「全語音輸入」。
+1. **麥克風**：跳出「JarvisVoice 想要取用麥克風」時按允許。
+2. **輔助使用**（貼上要用）：第一次講話時會跳出詢問，到「系統設定 → 隱私權與安全性 → 輔助使用」打開「JarvisVoice」。
 
 用 `openai` 要給 OpenAI 的 key：第二步請 AI 幫你放（key 由你自己在終端機貼，AI 不經手），或自己在 `~/.voice-dictation/config.json` 的 `openai` 裡加 `"apiKeyFile": "放 key 的檔案"`。
 
@@ -37,7 +37,7 @@ cd ~/jarvis-voice
 
 每個人常講的產品名、英文縮寫、公司內部用語都不一樣，這些詞最容易被聽錯；AI 整理、自動找輸入框、語音指令也要選 AI、放 key 才能開。打開你常用的 AI（Claude Code、Codex、ChatGPT 都可以），把這句話貼給它：
 
-> 請照 ~/jarvis-voice/AI_SETUP.md 幫我設定全語音輸入：填專有名詞並跑測試，也問我要不要開 AI 整理、自動找輸入框、語音指令，要的話幫我設定好並檢查。
+> 請照 ~/jarvis-voice/AI_SETUP.md 幫我設定 JarvisVoice：填專有名詞並跑測試，也問我要不要開 AI 整理、自動找輸入框、語音指令，要的話幫我設定好並檢查。
 
 AI 會：
 - 從你打過的字裡找出常講的詞，寫進 `~/.voice-dictation/vocabulary.txt`，跑測試比較加詞彙前後的準度。實測 4 句中英夾雜的開發用語：不加詞彙整句全對 1/4，加了 4/4（「平行沙河」變回「平行沙盒」、「香芹卡」變回「鑲嵌卡」）。
@@ -149,16 +149,16 @@ AI 會：
 
 ## 疑難排解
 
-- **選單列沒有圖示**：打開 `~/Applications/全語音輸入.app`。macOS 26 可以到「系統設定 → 選單列」確認它被允許顯示。
+- **選單列沒有圖示**：打開 `~/Applications/JarvisVoice.app`。macOS 26 可以到「系統設定 → 選單列」確認它被允許顯示。
 - **圖示是驚嘆號**：點開選單看第一行寫的原因。
 - **AI 整理沒作用、選單寫「（沒有 key）」**：跑 `node ~/jarvis-voice/bin/ai-check.mjs`，它會說缺什麼。
-- **字沒貼進去**：先確認游標在輸入框裡，再確認「輔助使用」裡有打開「全語音輸入」。
+- **字沒貼進去**：先確認游標在輸入框裡，再確認「輔助使用」裡有打開「JarvisVoice」。
 - **看詳細記錄**：`~/.voice-dictation/listen.log`。
-- **重新安裝或更新**：`git pull && ./install.sh`。外殼 `app/main.js` 或打包設定沒變就不會重包，權限不用重給；有變的話系統會再問一次麥克風，輔助使用要到設定裡把「全語音輸入」關掉再打開。
+- **重新安裝或更新**：`git pull && ./install.sh`。外殼 `app/main.js` 或打包設定沒變就不會重包，權限不用重給；有變的話系統會再問一次麥克風，輔助使用要到設定裡把「JarvisVoice」關掉再打開。
 
 ## 怎麼運作
 
-- `app/main.js`：選單列小程式的外殼，用 macOS 內建的 `osacompile` 包成 `全語音輸入.app`，不用 Xcode。麥克風與輔助使用權限都算在它頭上。
+- `app/main.js`：選單列小程式的外殼，用 macOS 內建的 `osacompile` 包成 `JarvisVoice.app`，不用 Xcode。麥克風與輔助使用權限都算在它頭上。
 - `app/ui.js`：選單列的介面，以及帶起常駐程式的邏輯。外殼啟動時才讀進來，所以改它不用重包 app、權限也不用重給；改完從選單「結束」再打開就生效。
 - `bin/listen.mjs`：常駐程式。它看哪個 app 在最前面，用 ffmpeg 收音、在本機切句，交給轉寫引擎；AI 整理開著就分段交給 AI，再寫進輸入框或執行指令。
 - `bin/engines/`：`batch.mjs`（OpenAI 一般轉寫）、`realtime.mjs`（即時轉寫，OpenAI 或平行沙盒）、`local.mjs`（sherpa-onnx 跑 SenseVoice）。

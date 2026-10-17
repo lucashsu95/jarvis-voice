@@ -44,7 +44,7 @@ test('AX 小幫手：讀上下文、找輸入框、對焦、列元件；不在�
       if (ctx?.field?.editable) break;
       await new Promise((r) => setTimeout(r, 150));
     }
-    assert.equal(ctx.window, '全語音輸入測試視窗');
+    assert.equal(ctx.window, 'JarvisVoice 測試視窗');
     assert.ok(await sendToBack(pid), '測試視窗要在背景');
     assert.deepEqual([ctx.field.role, ctx.field.label, ctx.field.before, ctx.field.after], ['AXTextArea', '訊息', '今天的待辦：', '']);
 

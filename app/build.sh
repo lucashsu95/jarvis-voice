@@ -29,11 +29,11 @@ set_key() {
   /usr/libexec/PlistBuddy -c "Set :$1 $3" "$PLIST" 2>/dev/null || /usr/libexec/PlistBuddy -c "Add :$1 $2 $3" "$PLIST"
 }
 set_key CFBundleIdentifier string "$BUNDLE_ID"
-set_key CFBundleName string "全語音輸入"
-set_key CFBundleDisplayName string "全語音輸入"
+set_key CFBundleName string "JarvisVoice"
+set_key CFBundleDisplayName string "JarvisVoice"
 set_key LSUIElement bool true
-set_key NSMicrophoneUsageDescription string "全語音輸入要用麥克風聽你講話，轉成文字貼進游標所在的輸入框。"
-set_key NSAppleEventsUsageDescription string "全語音輸入要送出貼上（Cmd+V），把字放進游標所在的輸入框。"
+set_key NSMicrophoneUsageDescription string "JarvisVoice 要用麥克風聽你講話，轉成文字寫進輸入框，或照你講的操作 app。"
+set_key NSAppleEventsUsageDescription string "JarvisVoice 要送出貼上（Cmd+V），把字放進輸入框。"
 
 # 本機簽名：麥克風、輔助使用權限才會認得同一個 app
 codesign --force --deep --sign - "$APP" >/dev/null 2>&1

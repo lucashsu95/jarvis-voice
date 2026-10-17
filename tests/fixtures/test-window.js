@@ -28,7 +28,7 @@ function run(argv) {
   app.setActivationPolicy(0); // 一般 app，才能到最前面收鍵盤
   editMenu(app);
   const win = $.NSWindow.alloc.initWithContentRectStyleMaskBackingDefer($.NSMakeRect(200, 200, 560, 420), 1 | 2, 2, false);
-  win.setTitle('全語音輸入測試視窗');
+  win.setTitle('JarvisVoice 測試視窗');
   const view = win.contentView;
   const search = field($.NSSearchField, $.NSMakeRect(20, 370, 520, 26), '搜尋');
   const single = field($.NSTextField, $.NSMakeRect(20, 330, 520, 26), '主旨');

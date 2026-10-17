@@ -1,10 +1,10 @@
 #!/usr/bin/env node
-// 語音輸入的常駐程式（由選單列小程式「全語音輸入」帶起來）：自動收音，講完就寫進目前游標所在的輸入框——
+// 語音輸入的常駐程式（由選單列小程式「JarvisVoice」帶起來）：自動收音，講完就寫進目前游標所在的輸入框——
 // 在哪個 app、哪個欄位，字就進哪裡；只貼不送出。開會、通話的 app 在最前面或按了暫停時關麥克風。
 // 整台電腦同時只跑一個（鎖檔）。
 //
 // 三層：
-//   1. 全語音輸入：停頓 0.85 秒切一句，轉寫完就貼（AI 整理關著時）。
+//   1. 語音輸入：停頓 0.85 秒切一句，轉寫完就貼（AI 整理關著時）。
 //   2. AI 整理（ai.enabled）：停頓超過 ai.segmentPauseMs 算一段講完，讀游標前後與 app、視窗、網址，
 //      整段交給 AI（OpenAI／DeepSeek／Claude）整理再貼；選取了字又講指令就改寫選取的字。原稿留著可以換回。
 //   3. 自動找輸入框（autoFocus）：游標不在輸入框時，挑視窗裡最像要寫字的輸入框，對焦後寫進去。
@@ -589,9 +589,9 @@ async function deliver(item, front) {
   }
   const pasted = await axCall('paste', { pid: front.pid, text, ask: !askedAccessibility }, 6000);
   if (pasted?.result === 'no-accessibility') {
-    if (!askedAccessibility) log('貼不進去：「全語音輸入」還沒有輔助使用權限，開了就會補貼：', text);
+    if (!askedAccessibility) log('貼不進去：「JarvisVoice」還沒有輔助使用權限，開了就會補貼：', text);
     askedAccessibility = true;
-    setError('沒有「輔助使用」權限，字貼不進去：系統設定 → 隱私權與安全性 → 輔助使用，打開「全語音輸入」');
+    setError('沒有「輔助使用」權限，字貼不進去：系統設定 → 隱私權與安全性 → 輔助使用，打開「JarvisVoice」');
     return 'retry';
   }
   if (pasted?.result === 'not-front') {
@@ -705,10 +705,10 @@ async function main() {
   }
   if (appMode) {
     try { if (statSync(LOG).size > 1_000_000) writeFileSync(LOG, ''); } catch { /* 還沒有 log */ }
-    // 沒權限就在啟動時跳系統詢問，「全語音輸入」才會出現在輔助使用清單裡
+    // 沒權限就在啟動時跳系統詢問，「JarvisVoice」才會出現在輔助使用清單裡
     const access = await axCall('check', { ask: true });
     if (!access?.trusted) askedAccessibility = true;
-    log(`輔助使用權限：${access?.trusted ? '有' : '沒有（字貼不進去：系統設定 → 隱私權與安全性 → 輔助使用，打開「全語音輸入」）'}`);
+    log(`輔助使用權限：${access?.trusted ? '有' : '沒有（字貼不進去：系統設定 → 隱私權與安全性 → 輔助使用，打開「JarvisVoice」）'}`);
   }
   process.on('SIGTERM', () => shutdown(0));
   process.on('SIGINT', () => shutdown(0));

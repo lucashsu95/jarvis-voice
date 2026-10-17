@@ -2,7 +2,7 @@
   "name": "jarvis-voice",
   "version": "1.0.0",
   "private": true,
-  "description": "全語音輸入（macOS）：開著就自動收音，講完一句就貼進游標所在的輸入框（任何 app）",
+  "description": "JarvisVoice：自動語音輸入與操作（macOS 選單列小程式）",
   "type": "module",
   "license": "MIT",
   "scripts": {
