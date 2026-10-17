@@ -1,8 +1,9 @@
 // 「語音輸入」選單列的介面與常駐程式管理。由 app/main.js（包進 .app 的外殼）啟動時讀進來執行，
 // 所以改這個檔不用重包 app，麥克風與輔助使用權限也不用重給；改完從選單「結束」再打開 app 就生效。
-// 帶起常駐程式 bin/listen.mjs（它掛了 3 秒後自己重開），狀態全顯示在選單列的圖示上：
-//   紅色麥克風＝收音中、紅色聲波＋「說話中」＝聽到你講話、綠色勾＋「已貼上」＝剛貼好、
-//   橘色＋「沒有輸入框」＝游標不在輸入框所以沒貼、劃掉的麥克風＝暫停、灰色麥克風＝待命、三角形＝出錯。
+// 帶起常駐程式 bin/listen.mjs（它掛了 3 秒後自己重開），狀態全顯示在選單列的圖示上。
+// 圖示固定寬度、不加字（加字會讓旁邊的圖示跳來跳去），顏色交給系統（跟其他選單列圖示同色），只換形狀：
+//   實心麥克風＝收音中、聲波＝聽到你講話、打勾＝剛貼好、驚嘆號＝游標不在輸入框所以沒貼、
+//   劃掉的麥克風＝暫停、空心麥克風＝待命、三角形＝出錯（點開選單看原因）。
 // BUILD（{ node, repo, state }）由外殼放在全域。
 const LISTEN = `${BUILD.repo}/bin/listen.mjs`;
 const NODE_DIR = BUILD.node.replace(/\/[^/]*$/, '');
@@ -36,17 +37,15 @@ function label() {
   }
 }
 
-// 選單列圖示要長什麼樣：[SF Symbol 名稱, 顏色, 圖示旁的字]
+// 選單列圖示要用哪個 SF Symbol，以及滑鼠停上去的說明
 function look() {
   if (flash && Date.now() < flash.until) {
-    return flash.kind === 'pasted'
-      ? ['checkmark.circle.fill', $.NSColor.systemGreenColor, '已貼上']
-      : ['exclamationmark.circle.fill', $.NSColor.systemOrangeColor, '沒有輸入框，沒貼'];
+    return flash.kind === 'pasted' ? ['checkmark.circle.fill', '已貼上'] : ['exclamationmark.circle', '游標不在輸入框，沒貼'];
   }
-  if (view.state === 'listening') return hearing ? ['waveform', $.NSColor.systemRedColor, '說話中'] : ['mic.fill', $.NSColor.systemRedColor, ''];
-  if (view.state === 'paused') return ['mic.slash', $(), ''];
-  if (view.state === 'error') return ['exclamationmark.triangle.fill', $.NSColor.systemOrangeColor, '出錯'];
-  return ['mic', $(), ''];
+  if (view.state === 'listening') return hearing ? ['waveform', '說話中'] : ['mic.fill', ''];
+  if (view.state === 'paused') return ['mic.slash', ''];
+  if (view.state === 'error') return ['exclamationmark.triangle', ''];
+  return ['mic', ''];
 }
 
 // 測試用：目前選單列圖示旁的字與選單第一行
@@ -64,6 +63,7 @@ function dumpFrame() {
     const info = {
       x: f.origin.x, y: f.origin.y, width: f.size.width, height: f.size.height,
       visible: statusItem.isVisible, onScreen: win.isVisible,
+      appearance: ObjC.unwrap(statusItem.button.effectiveAppearance.name),
       screenWidth: screen.frame.size.width, notchStart: notch ? notch.size.width : null,
       notchEnd: screen.auxiliaryTopRightArea ? screen.frame.size.width - screen.auxiliaryTopRightArea.size.width : null,
     };
@@ -73,14 +73,11 @@ function dumpFrame() {
 
 function refresh() {
   if (!statusItem) return;
-  const [symbol, tint, text] = look();
+  const [symbol, hint] = look();
   const image = $.NSImage.imageWithSystemSymbolNameAccessibilityDescription(symbol, '語音輸入');
-  image.setTemplate(true);
+  image.setTemplate(true); // 範本圖：顏色由系統依選單列決定
   statusItem.button.setImage(image);
-  statusItem.button.setImagePosition(2); // NSImageLeft：圖示在字的左邊
-  statusItem.button.setTitle(text ? ` ${text}` : '');
-  statusItem.button.setContentTintColor(tint);
-  statusItem.button.setToolTip(`語音輸入：${label()}`);
+  statusItem.button.setToolTip(`語音輸入：${hint || label()}`);
   statusLine.setTitle(label());
   toggleItem.setTitle(view.state === 'paused' ? '繼續收音' : '暫停收音');
 }
@@ -237,7 +234,7 @@ function startUI() {
   const positionKey = 'NSStatusItem Preferred Position VoiceDictation';
   const defaults = $.NSUserDefaults.standardUserDefaults;
   if (defaults.objectForKey(positionKey).isNil()) defaults.setDoubleForKey(260, positionKey);
-  statusItem = $.NSStatusBar.systemStatusBar.statusItemWithLength(-1); // NSVariableStatusItemLength
+  statusItem = $.NSStatusBar.systemStatusBar.statusItemWithLength(-2); // NSSquareStatusItemLength：固定寬度
   statusItem.setAutosaveName('VoiceDictation');
   const menu = $.NSMenu.alloc.init;
   menu.setAutoenablesItems(false);
