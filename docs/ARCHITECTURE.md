@@ -136,18 +136,27 @@ LINE 這類 app 輔助使用只讀得到搜尋框和訊息框（實測 3 個元�
 
 在使用者的 LINE 實測：從別的群組出發，填「BU」→ 點「bubu」→ 確認 0.90 → 寫「你好」，5.3 秒；沒有送出。
 
+## 共用核心（`core/`）：Mac 小程式、CubeLV、平行沙盒共用一份
+
+上面這些規則（AI 整理的提示、Jev 的題目和門檻、指令的步驟、找輸入框、詞彙自動學）都放在 `core/`，只放和平台無關的邏輯：不用 `node:` 模組、不碰檔案和網路（`tests/core.spec.mjs` 會檢查）。要看畫面、打模型、存東西，由呼叫端傳接頭進來：
+
+| 接頭 | 介面 | Mac 小程式怎麼接 | 其他 App 怎麼接 |
+|---|---|---|---|
+| 服務 | `complete({ system, user, schema })`、`jev({ state, questions })` | `core/providers.mjs` 的 `ownKeyService`：自己的 key 直接打 OpenAI／DeepSeek／Claude、TypeSafe | 接自己的後端（扣點數、平台吸收） |
+| 畫面 | `elements({ limit, ocr })`、`act({ handle, action, text, x, y })` | AX 小幫手（`bin/ax-agent.js`）：輔助使用＋截圖認字 | 讀自己的頁面 |
+| 存放 | `loadState`、`saveState`、`readVocab`、`writeVocab` | 檔案（`~/.voice-dictation`） | 瀏覽器的儲存或自己的後端 |
+
+其他專案用 `scripts/sync-core.sh <目標資料夾>` 同步一份過去：每個檔案開頭寫來源 commit，不在那邊改；要改回 `core/` 改再同步。TypeScript 用 `core/index.d.mts` 的型別。
+
 ## 程式
 
 | 檔案 | 做什麼 |
 |---|---|
+| `core/` | 共用核心：`editor.mjs`（AI 整理）、`decide.mjs`（決策題目與門檻）、`commander.mjs`（指令步驟）、`targeter.mjs`、`learn.mjs`、`vocab.mjs`、`turns.mjs`（斷句）、`providers.mjs`（自己的 key）、`index.d.mts`（型別） |
 | `bin/listen.mjs` | 常駐程式：收音、切句、分段、讀上下文、AI 整理、找輸入框、指令、寫入、換回原文、自動學詞 |
 | `bin/ax-agent.js` | 常駐的 AX 小幫手（JXA），stdin／stdout 一行一個 JSON：context、paste、replace、targets、focus、read、elements、act |
 | `bin/ax.mjs` | 跟小幫手講話；掛了、卡住、用久了就重開 |
-| `bin/editor.mjs` | AI 整理：提示、三家呼叫、檢查回傳格式 |
-| `bin/decide.mjs` | 第三層的決策：Jev（或改問 AI）、判斷指令、挑輸入框、指令的每一步 |
-| `bin/commander.mjs` | 指令模式的迴圈與安全限制 |
-| `bin/targeter.mjs` | 挑輸入框的規則（沒有決策器時用） |
-| `bin/learn.mjs` | 自動學詞 |
+| `bin/editor.mjs`、`bin/decide.mjs`、`bin/commander.mjs`、`bin/learn.mjs`、`bin/vocab-auto.mjs`、`bin/targeter.mjs` | 把核心接上 Mac 的接頭：自己的 key、AX 小幫手、檔案 |
 | `bin/history.mjs` | 本機歷史 |
 | `app/ui.js` | 選單：AI 整理三選一、自動找輸入框、語音指令、換回原文 |
 | `tests/ai.spec.mjs` | 三家 AI、設定、找輸入框、決策器、指令、自動學詞、整條管線（音檔 → 假轉寫 → 假 AI） |
