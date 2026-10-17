@@ -1,20 +1,22 @@
 #!/usr/bin/env node
-// 語音自動輸入的常駐程式：指定的 app（預設 Claude 桌面版）在最前面時自動收音，講完一句（停頓約 0.85 秒）
-// 就把定稿貼進目前游標所在的輸入框——你在哪個 session，字就進哪個 session；只貼不送出。
-// 不在最前面或暫停時關麥克風。整台電腦同時只跑一個（鎖檔），由各 session 的 mod 輪流確保有人在跑。
+// 語音輸入的常駐程式（由選單列小程式「語音輸入」帶起來）：自動收音，講完一句（停頓約 0.85 秒）
+// 就把定稿貼進目前游標所在的輸入框——在哪個 app、哪個欄位，字就進哪裡；只貼不送出。
+// 游標不在輸入框（例如在看網頁本身）就不貼；開會、通話的 app 在最前面或按了暫停時關麥克風。
+// 整台電腦同時只跑一個（鎖檔）。
 //
 // 轉寫引擎看設定檔（bin/config.mjs）：local 本機 SenseVoice、openai 自己的 key（預設 gpt-transcribe 一般轉寫，
 // 也可以選 gpt-live-transcribe 即時）、parallelsandbox。
 // 設定檔改了會自動換引擎。狀態寫在 status.json 給狀態列讀；有 paused 檔就暫停。
 // stdout 每行一個 JSON（state、pasted）。
+// 選項：--app 由選單列小程式帶起（log 寫進 listen.log，小程式不在了就結束）。
 // 測試選項：--file <音檔> 用音檔代替麥克風、讀完收尾結束；--dry-paste 只印不貼；--always 不看前景 app；--hud 測試時也顯示標籤。
 
 import { execFile, spawn } from 'node:child_process';
-import { closeSync, existsSync, mkdirSync, openSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
+import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { AudioTurnDetector, BATCH_BYTES, SAMPLE_RATE, findFfmpeg } from './common.mjs';
-import { STATE_DIR, configMtime, isLiveModel, loadConfig } from './config.mjs';
+import { STATE_DIR, appAllowed, configMtime, isLiveModel, loadConfig } from './config.mjs';
 import { createBatchEngine } from './engines/batch.mjs';
 import { createLocalEngine } from './engines/local.mjs';
 import { createRealtimeEngine, openaiConnector, parallelSandboxConnector } from './engines/realtime.mjs';
@@ -24,6 +26,8 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const LOCK = join(STATE_DIR, 'listener.lock');
 const PAUSED = join(STATE_DIR, 'paused');
 const STATUS = join(STATE_DIR, 'status.json');
+const LAST = join(STATE_DIR, 'last.txt');
+const LOG = join(STATE_DIR, 'listen.log');
 const POLL_MS = 500;
 const HOLD_MS = 60_000; // 定稿時目標 app 不在最前面，最多等一分鐘回來再貼
 
@@ -32,9 +36,15 @@ const fileIndex = argv.indexOf('--file');
 const inputFile = fileIndex >= 0 ? argv[fileIndex + 1] : null;
 const dryPaste = argv.includes('--dry-paste');
 const always = argv.includes('--always') || !!inputFile;
+const appMode = argv.includes('--app');
+const parentPid = process.ppid;
 
 const emit = (event) => process.stdout.write(`${JSON.stringify(event)}\n`);
-const log = (...parts) => process.stderr.write(`[listen] ${parts.join(' ')}\n`);
+const log = (...parts) => {
+  const line = `[listen] ${parts.join(' ')}\n`;
+  if (!appMode) { process.stderr.write(line); return; }
+  try { appendFileSync(LOG, `${new Date().toISOString()} ${line}`); } catch { /* 寫不進就算了 */ }
+};
 const exec = (cmd, args, timeout = 3000) => new Promise((resolve) => {
   execFile(cmd, args, { timeout }, (err, stdout) => resolve(err ? '' : stdout));
 });
@@ -113,7 +123,7 @@ const hudFlash = () => { if (hudMode && hudMode !== 'hide') hudWrite('pasted'); 
 // ---- 設定與引擎 ----
 
 let { config, error: configError } = loadConfig();
-let configStamp = configMtime();
+let configStamp = configMtime(config);
 let engine = null;
 
 function startEngine() {
@@ -134,15 +144,16 @@ function startEngine() {
   else if (config.engine === 'openai' && isLiveModel(config.openai.model)) engine = createRealtimeEngine({ connector: openaiConnector(config.openai), ...callbacks });
   else if (config.engine === 'openai') engine = createBatchEngine({ ...config.openai, ...callbacks });
   else engine = createRealtimeEngine({ connector: parallelSandboxConnector(config.parallelsandbox), ...callbacks });
-  log(`轉寫引擎：${config.engine}${config.engine === 'openai' ? `（${config.openai.model}）` : ''}`);
+  log(`轉寫引擎：${config.engine}${config.engine === 'openai' ? `（${config.openai.model}，詞彙 ${config.openai.keywords.length} 個）` : ''}`);
   if (configError) setError(configError);
 }
 
 function reloadConfigIfChanged() {
-  const stamp = configMtime();
+  const stamp = configMtime(config);
   if (stamp === configStamp) return;
   configStamp = stamp;
   ({ config, error: configError } = loadConfig());
+  configStamp = configMtime(config);
   startEngine();
 }
 
@@ -160,7 +171,7 @@ function setState(next, message = '') {
   if (next === state && message === stateMessage) return;
   state = next;
   stateMessage = message;
-  emit({ type: 'state', state, message });
+  emit({ type: 'state', state, message, engine: config.engine });
   if (state === 'listening') hudShow(detector.speaking ? 'hearing' : 'listening');
   else if (state === 'error' && frontActive) hudShow(`error:${message}`);
   else hudShow('hide');
@@ -181,7 +192,10 @@ async function frontApp() {
   };
 }
 
-const targetApps = () => (process.env.VOICE_DICTATION_APPS ? process.env.VOICE_DICTATION_APPS.split(',') : config.apps);
+// 這個 app 在最前面時要不要收音（VOICE_DICTATION_APPS 給測試用：只認這些）
+const allowed = (bundle) => (process.env.VOICE_DICTATION_APPS
+  ? process.env.VOICE_DICTATION_APPS.split(',').includes(bundle)
+  : appAllowed(config, bundle));
 
 // ---- 收音與切句 ----
 
@@ -299,6 +313,7 @@ let askedAccessibility = false;
 
 function enqueuePaste(text) {
   pasteQueue.push({ text, at: Date.now() });
+  try { writeFileSync(LAST, text); } catch { /* 選單「複製上一句」拿不到而已 */ }
   void drainPaste();
 }
 
@@ -313,7 +328,8 @@ async function drainPaste() {
         log('目標 app 一直不在最前面，丟掉一句：', item.text);
         continue;
       }
-      if (!always && !targetApps().includes((await frontApp()).bundle)) break;
+      const front = always ? { bundle: '', pid: 0 } : await frontApp();
+      if (!always && !allowed(front.bundle)) break;
       pasteQueue.shift();
       const text = withSpacing(item.text);
       if (dryPaste) {
@@ -321,11 +337,18 @@ async function drainPaste() {
         continue;
       }
       const args = ['-l', 'JavaScript', join(HERE, 'paste.js'), text];
+      if (front.pid) args.push('--pid', String(front.pid));
       if (!askedAccessibility) args.push('--ask');
       const out = (await exec('/usr/bin/osascript', args, 5000)).trim();
       if (out === 'no-accessibility') {
         askedAccessibility = true;
-        setError('沒有「輔助使用」權限，字貼不進去：系統設定 → 隱私權與安全性 → 輔助使用，打開 Claude Code');
+        setError('沒有「輔助使用」權限，字貼不進去：系統設定 → 隱私權與安全性 → 輔助使用，打開「語音輸入」');
+        continue;
+      }
+      if (out.startsWith('not-text-field')) {
+        log('游標不在輸入框，這句沒貼：', item.text, `（${out.slice(15)}）`);
+        hudWrite('nofield');
+        emit({ type: 'skipped', text, reason: out });
         continue;
       }
       if (out !== 'ok') log('貼上沒成功：', out || '（osascript 沒有回應）');
@@ -354,8 +377,9 @@ async function tick() {
   if (stopping) return;
   reloadConfigIfChanged();
   const paused = existsSync(PAUSED);
-  const front = always ? { bundle: targetApps()[0], pid: 0 } : await frontApp();
-  const active = !paused && targetApps().includes(front.bundle);
+  if (appMode && process.ppid !== parentPid) { shutdown(0); return; } // 選單列小程式不在了
+  const front = always ? { bundle: 'test', pid: 0 } : await frontApp();
+  const active = !paused && (always || allowed(front.bundle));
   frontActive = active;
   if (active) hudFollow(front.pid);
 
@@ -377,6 +401,9 @@ async function main() {
   if (!takeLock()) {
     emit({ type: 'state', state: 'already-running' });
     process.exit(3);
+  }
+  if (appMode) {
+    try { if (statSync(LOG).size > 1_000_000) writeFileSync(LOG, ''); } catch { /* 還沒有 log */ }
   }
   process.on('SIGTERM', () => shutdown(0));
   process.on('SIGINT', () => shutdown(0));

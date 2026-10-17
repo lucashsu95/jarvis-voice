@@ -1,159 +1,106 @@
-# Claude Code 語音自動輸入
+# 語音輸入（macOS）
 
-不用按任何按鈕。Claude 在最前面時自動收音，你講完一句（停頓約 0.85 秒），那句就貼進游標所在的輸入框：你在哪個 session，字就進哪個 session，新開的 session 也一樣。只貼不送出，要送自己按 Enter。
+開著就自動收音：你講完一句（停頓約 0.85 秒），那句就貼進游標所在的輸入框。不管是 Claude、ChatGPT、瀏覽器、LINE、備忘錄，在哪裡講，字就進哪裡。只貼不送出，要送自己按 Enter。
 
-- **自動收音、自動切句**：本機判斷有沒有人聲，安靜時什麼都不送。Claude 不在最前面時麥克風直接關掉。
-- **三種轉寫引擎，隨時可換**
-  - `local`（預設）：本機跑 [SenseVoice-Small](https://github.com/FunAudioLLM/SenseVoice)，免費，聲音不離開你的電腦。
-  - `openai`：用你自己的 OpenAI API key。預設是一般轉寫 `gpt-transcribe`，每講完一句就整句送出；也可以改用即時轉寫 `gpt-live-transcribe`。
-  - `parallelsandbox`：用[平行沙盒](https://parallelsandbox.com)帳號的轉寫。
-- **錄音標示**：Claude 視窗標題列正中間會浮一個小標籤，顯示「錄音中」「說話中」「已貼上」；Claude 不在最前面時收起來。
-- **狀態列**：每個 session 的輸入框上方有一行狀態（用哪個引擎、聽著還是待命），可以一鍵暫停或繼續。
-- **中文整理**：簡體自動轉台灣正體，常錯的專有名詞可以寫進固定替換表。
+## 兩個步驟
 
-## 需求
-
-- macOS（Apple 晶片或 Intel）
-- [Claude Code](https://docs.claude.com/claude-code)：桌面版 Code 分頁，或終端機版（見[在終端機用](#在終端機裡的-claude-code-用)）
-- Node.js 22 以上（`brew install node`）
-- ffmpeg（`brew install ffmpeg`）
-
-## 安裝
+**第一步：裝好、打開小程式**
 
 ```bash
-git clone https://github.com/urusaqqrun/claude-voice-dictation.git ~/.claude-voice-dictation
-cd ~/.claude-voice-dictation
-./install.sh
+git clone https://github.com/urusaqqrun/voice-dictation.git ~/voice-dictation
+cd ~/voice-dictation
+./install.sh openai   # 用 OpenAI 轉寫（最準）；不想花錢就用 ./install.sh local
 ```
 
-`install.sh` 會裝套件、下載本機模型（約 155 MB），並把 plugin 註冊進 Claude Code（使用者範圍）。裝完：
+裝完選單列會出現麥克風圖示。第一次用要給兩個權限，都只要一次：
 
-1. 開一個新的 Claude Code session，送一句話。之後每個 session 都會自動載入。
-2. 第一次收音時，macOS 會問「Claude Code」能不能使用麥克風，按允許。
-3. 第一次貼上時，會跳出「輔助使用」權限的詢問：系統設定 → 隱私權與安全性 → 輔助使用，打開 Claude Code。
+1. **麥克風**：跳出「語音輸入想要取用麥克風」時按允許。
+2. **輔助使用**（貼上要用）：第一次講話時會跳出詢問，到「系統設定 → 隱私權與安全性 → 輔助使用」打開「語音輸入」。
 
-之後只要 Claude 在最前面，直接講話就好。
+用 `openai` 要給 key：在 `~/.voice-dictation/config.json` 的 `openai` 裡加上 `"apiKey": "sk-..."`，或用 `"apiKeyFile"` 指向放 key 的檔案。
 
-> 常駐程式由任一個開著的 Claude Code session 帶起來。Claude 重開後，要先在任一個 session 送過一句話才會開始收音。
+**第二步：請你的 AI 填專有名詞並測試**
 
-## 換引擎
+每個人常講的產品名、英文縮寫、公司內部用語都不一樣，這些詞最容易被聽錯。打開你常用的 AI（Claude Code、Codex、ChatGPT 都可以），把這句話貼給它：
 
-```bash
-./install.sh local             # 本機辨識
-./install.sh openai            # 自己的 OpenAI key（有設 OPENAI_API_KEY 會順手寫進設定檔），預設一般轉寫
-./install.sh parallelsandbox   # 平行沙盒
-```
+> 請照 ~/voice-dictation/AI_SETUP.md 幫我設定語音輸入的專有名詞，並跑測試給我看結果。
 
-也可以直接改設定檔，存檔後幾秒內就會套用新的引擎，不用重開。
+AI 會從你打過的字裡找出常講的詞，寫進 `~/.voice-dictation/vocabulary.txt`，然後跑測試，比較加詞彙前後的準度。實測 4 句中英夾雜的開發用語：不加詞彙整句全對 1/4，加了 4/4（「平行沙河」變回「平行沙盒」、「香芹卡」變回「鑲嵌卡」）。
+
+## 平常怎麼用
+
+- **選單列圖示**：紅色麥克風＝收音中、灰色麥克風＝待命（最前面的 app 不收音）、劃掉的麥克風＝暫停、三角形＝出錯。
+- **錄音標籤**：最前面那個視窗的標題列中間會浮一個小標籤，顯示「錄音中」「說話中」「已貼上」。
+- **只貼進輸入框**：游標不在輸入框時（例如在看網頁本身、在 Finder 選檔案）不會貼，標籤會顯示「游標不在輸入框，沒貼」。這時可以點選單的「複製上一句」把那句拿回來。
+- **開會時不收音**：Zoom、Teams、FaceTime、Webex 在最前面時不收音。旁邊有人講話、在放影片，就按選單的「暫停收音」。
+- **選單**：暫停／繼續、複製上一句、編輯專有名詞、編輯設定檔、說明、結束。
+
+## 轉寫引擎
+
+| 引擎 | 準度 | 費用 | 聲音送去哪 |
+|---|---|---|---|
+| `openai`（`gpt-transcribe`，預設） | 最準，吃專有名詞 | 每分鐘 0.0045 美元；一天講 1 小時、一個月約 7.4 美元 | OpenAI |
+| `openai`（`gpt-live-transcribe`） | 稍差 | 每分鐘 0.017 美元 | OpenAI |
+| `local`（SenseVoice-Small） | 中文不錯，英文較弱，不吃專有名詞 | 免費 | 不離開你的電腦 |
+| `parallelsandbox` | 同 `gpt-live-transcribe` | 依平行沙盒的方案 | 平行沙盒，再轉給 OpenAI |
+
+只有判定是人聲的片段才會送去轉寫，安靜時什麼都不送。費用已經算進每句前後多帶的約 1.25 秒。換引擎就跑 `./install.sh <引擎>`，或直接改設定檔，存檔後幾秒內就會套用。
 
 ## 設定檔
 
-位置在 `~/.claude/voice-dictation/config.json`，沒寫的欄位照預設：
+位置在 `~/.voice-dictation/config.json`，沒寫的欄位照預設：
 
 ```json
 {
-  "engine": "local",
-  "apps": ["com.anthropic.claudefordesktop"],
+  "engine": "openai",
   "output": "traditional",
-  "replacements": { "部屬": "部署", "Cube LV": "CubeLV" },
-  "local": { "language": "auto", "threads": 2 },
+  "replacements": { "部屬": "部署" },
   "openai": {
-    "apiKey": "sk-...",
+    "apiKeyFile": "~/secrets/openai.env",
     "model": "gpt-transcribe",
-    "language": "",
-    "prompt": "軟體開發對話，常出現：Claude Code、session、build、commit、push、部署、dev"
-  },
-  "parallelsandbox": { "apiKey": "" }
+    "languages": ["zh-tw", "en"],
+    "prompt": "台灣工程師用中文夾英文口述，內容是軟體開發與產品營運。"
+  }
 }
 ```
 
 | 欄位 | 說明 |
 |---|---|
-| `engine` | `local`、`openai`、`parallelsandbox` |
-| `apps` | 這些 app 在最前面時才收音（bundle id）。預設只有 Claude 桌面版 |
+| `engine` | `openai`、`local`、`parallelsandbox` |
+| `apps` | 只在這些 app 收音（bundle id），預設 `["*"]` 全部 |
+| `excludeApps` | 這些 app 在最前面時不收音，預設是開會、通話用的 app |
 | `output` | `traditional`（台灣正體）、`simplified`、`original` |
-| `replacements` | 轉出來的字固定替換，給常錯的專有名詞用 |
-| `local.language` | `auto` 或 `zh`、`en`、`yue`、`ja`、`ko`；中英夾雜建議用 `auto` |
-| `openai.model` | `gpt-transcribe`（預設，一般轉寫，整句送出）或 `gpt-live-transcribe`（即時轉寫） |
-| `openai.apiKey` | 沒寫就看 `openai.apiKeyFile`，再沒有就讀環境變數 `OPENAI_API_KEY` |
-| `openai.apiKeyFile` | key 放在別的檔案時填路徑（整個檔案就是 key，或含 `OPENAI_API_KEY=` 的 .env），不用把 key 複製進設定檔 |
-| `openai.language` | 指定辨識語言（例如 `zh`），空白讓模型自己判斷 |
-| `openai.prompt` | 給一般轉寫的提示，寫上你常講的專有名詞，準度會明顯變好（見下方辨識率比較） |
-| `parallelsandbox.apiKey` | 沒寫就讀 `~/.claude.json` 裡 parallelsandbox MCP 的 key |
-
-想暫停，按狀態列的「暫停」，或建立 `~/.claude/voice-dictation/paused` 這個檔案；刪掉這個檔案就繼續收音。
-
-## 費用與隱私
-
-| 引擎 | 費用 | 聲音送去哪 |
-|---|---|---|
-| `local` | 免費 | 不離開你的電腦 |
-| `openai` | 照實際講話的時間計費，記在你自己的 OpenAI 帳號：`gpt-transcribe` 每分鐘 0.0045 美元，`gpt-live-transcribe` 每分鐘 0.017 美元 | OpenAI |
-| `parallelsandbox` | 依平行沙盒的方案 | 平行沙盒，再轉給 OpenAI |
-
-以一天實際講話 1 小時、一個月 22 個工作天估算：`gpt-transcribe` 一個月約 7.4 美元，`gpt-live-transcribe` 約 28 美元（每句前後會多帶約 1.25 秒的空白，已算進去）。
-
-不管用哪個引擎，只有判定是人聲的片段才會送去轉寫。不過人聲判斷的門檻不高：Claude 在最前面時，旁邊有人講話、你在開會、或在放影片和音樂，也可能被送出去，轉出來的字還會貼進輸入框。這些時候請按暫停，或切到別的 app。
-
-## 辨識率參考
-
-用 macOS 合成的台灣中文語音（8 句，含中英夾雜的開發用語）實測三種引擎：
-
-| 引擎 | 整句全對 | 純中文句字錯誤率 | 每句耗時 |
-|---|---|---|---|
-| `openai` `gpt-transcribe`＋`prompt` 專有名詞提示 | 6/8 | 0% | 約 0.6–1.3 秒 |
-| `openai` `gpt-transcribe` | 5/8 | 0% | 約 0.6–1.3 秒 |
-| `openai` `gpt-live-transcribe` | 4/8 | 4.4% | 邊講邊轉 |
-| `local` SenseVoice-Small | 4/8 | 2.9% | 約 0.1–0.5 秒 |
-
-錯得最多的是英文技術詞（dev、e2e），這部分合成語音本身就念得不準，真人講話的結果會不一樣。準度最重要就用 `openai` 一般轉寫並填 `prompt`；要免費、要離線就用 `local`。
-
-本機引擎 SenseVoice-Small 在 SenseVoice 論文公布的字錯誤率（越低越好）：
-
-| 測試資料 | SenseVoice-Small | Whisper large-v3 |
-|---|---|---|
-| AISHELL-1（清楚朗讀的普通話） | 2.96% | 5.14% |
-| WenetSpeech 會議錄音 | 7.44% | 18.87% |
-| Common Voice 中文 | 10.78% | 12.55% |
-| Common Voice 英文（詞錯誤率） | 14.71% | 9.39% |
-
-這些是中國大陸普通話測試集的數字。實際遇到台灣口音、中文夾英文技術名詞時會差一些，英文短句也比雲端引擎弱。常錯的詞可以寫進 `replacements`，在意英文準度就用 `openai`。在 M4 Max 上，本機辨識一句話約 0.15–0.3 秒。
-
-## 在終端機裡的 Claude Code 用
-
-把終端機的 bundle id 加進 `apps`，例如：
-
-```json
-{ "apps": ["com.anthropic.claudefordesktop", "com.apple.Terminal", "com.googlecode.iterm2", "com.mitchellh.ghostty"] }
-```
-
-在終端機裡用的話，麥克風和輔助使用權限要給那個終端機 app，而不是 Claude Code。
+| `replacements` | 轉出來的字固定替換，給測試後仍然固定錯的寫法用 |
+| `openai.model` | `gpt-transcribe`（預設，整句送出）或 `gpt-live-transcribe`（即時） |
+| `openai.apiKey`／`openai.apiKeyFile` | key 本身，或放 key 的檔案（整個檔案就是 key，或含 `OPENAI_API_KEY=` 的 .env）；都沒有就讀環境變數 `OPENAI_API_KEY` |
+| `openai.languages` | 預期的語言，例如 `["zh-tw", "en"]` |
+| `openai.prompt` | 一兩句話描述場合，不要塞詞彙清單 |
+| `openai.vocabularyFile` | 專有名詞檔，預設 `~/.voice-dictation/vocabulary.txt`，一行一個詞 |
+| `local.language` | `auto` 或 `zh`、`en`、`yue`、`ja`、`ko` |
 
 ## 疑難排解
 
-- **狀態列和標籤都沒出現**：那個 session 要先送過一句話。可以看 `cat ~/.claude/voice-dictation/status.json` 確認常駐程式的狀態。
-- **標籤顯示「麥克風開不起來」**：系統設定 → 隱私權與安全性 → 麥克風，打開 Claude Code。
-- **字沒貼進去**：系統設定 → 隱私權與安全性 → 輔助使用，打開 Claude Code。另外，游標要在輸入框裡。
-- **想看詳細輸出**：先停掉常駐程式（`kill $(cat ~/.claude/voice-dictation/listener.lock)`），再手動跑 `node bin/listen.mjs --always --dry-paste`。這樣只會印出要貼的字、不會真的貼；開著的 Claude Code session 會在 20 秒內把常駐程式重新帶起來。
+- **選單列沒有圖示**：打開 `~/Applications/語音輸入.app`。macOS 26 可以到「系統設定 → 選單列」確認它被允許顯示。
+- **圖示是三角形**：點開選單看第一行寫的原因。
+- **字沒貼進去**：先確認游標在輸入框裡，再確認「輔助使用」裡有打開「語音輸入」。
+- **看詳細記錄**：`~/.voice-dictation/listen.log`。
+- **重新安裝或更新**：`git pull && ./install.sh`。小程式本身沒變的話不會重包，權限不用重給。
 
 ## 怎麼運作
 
-- `hooks/register.tsx`：Claude Code 的 mod（function hooks），每個 session 載入一份。它負責確認常駐程式在跑（沒有就帶起來），並在輸入框上方畫狀態列。
-- `bin/listen.mjs`：常駐程式，整台電腦只跑一份（用鎖檔控制）。它看哪個 app 在最前面，用 ffmpeg 收音、在本機切句，交給轉寫引擎，再把定稿交給 `bin/paste.js`。
-- `bin/engines/`：`local.mjs`（sherpa-onnx 跑 SenseVoice）、`batch.mjs`（OpenAI 一般轉寫，整句上傳）、`realtime.mjs`（OpenAI Realtime 即時轉寫，直連或經平行沙盒）。
-- `bin/paste.js`：先暫存剪貼簿，放進字後送 Cmd+V，再把剪貼簿還原。
+- `app/main.js`：選單列小程式，用 macOS 內建的 `osacompile` 包成 `語音輸入.app`，不用 Xcode。它負責帶起常駐程式、顯示狀態和選單；麥克風與輔助使用權限都算在它頭上。
+- `bin/listen.mjs`：常駐程式。它看哪個 app 在最前面，用 ffmpeg 收音、在本機切句，交給轉寫引擎，再把定稿交給 `bin/paste.js`。
+- `bin/engines/`：`batch.mjs`（OpenAI 一般轉寫）、`realtime.mjs`（即時轉寫，OpenAI 或平行沙盒）、`local.mjs`（sherpa-onnx 跑 SenseVoice）。
+- `bin/paste.js`：先確認游標在輸入框，再暫存剪貼簿、放字、送 Cmd+V，最後把剪貼簿還原。
 - `bin/hud.js`：錄音標籤，是一個不搶焦點、不擋點擊的浮動小視窗。
+- `bin/vocab-test.mjs`：專有名詞測試（見 [AI_SETUP.md](AI_SETUP.md)）。
 
 ## 開發
 
 ```bash
 npm install
-npm test                 # 常駐程式的零件測試
-claude plugin test .     # mod 的測試
-claude plugin validate .
+npm test
 ```
-
-Claude Code 的 mod（function hooks）介面目前是 early access，Claude Code 更新時可能需要跟著調整。
 
 ## 解除安裝
 
@@ -161,7 +108,7 @@ Claude Code 的 mod（function hooks）介面目前是 early access，Claude Cod
 ./uninstall.sh
 ```
 
-設定檔和模型會留在 `~/.claude/voice-dictation`，不要了就自己刪掉。
+設定、詞彙、模型會留在 `~/.voice-dictation`，不要了就自己刪掉。
 
 ## 授權
 

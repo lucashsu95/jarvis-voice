@@ -1,8 +1,8 @@
 {
-  "name": "claude-voice-dictation",
-  "version": "0.3.0",
+  "name": "voice-dictation",
+  "version": "1.0.0",
   "private": true,
-  "description": "Claude Code 語音自動輸入：Claude 在最前面時自動收音，講完一句就貼進游標所在的輸入框",
+  "description": "macOS 語音輸入：開著就自動收音，講完一句就貼進游標所在的輸入框（任何 app）",
   "type": "module",
   "license": "MIT",
   "scripts": {

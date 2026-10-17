@@ -1,19 +1,19 @@
 #!/usr/bin/env bash
-# Claude Code 語音自動輸入：安裝或更新。
+# 語音輸入（macOS）：安裝或更新。
 #   ./install.sh                 用設定檔現在的引擎（第一次裝是 local）
 #   ./install.sh local           本機辨識（免費，聲音不離開這台電腦）
 #   ./install.sh openai          自己的 OpenAI key，預設一般轉寫 gpt-transcribe（OPENAI_API_KEY 有設就順手寫進設定檔）
 #   ./install.sh parallelsandbox 平行沙盒帳號
-# 重跑會：裝套件、補模型、改引擎、把 plugin 註冊進 Claude Code、重開常駐程式。
+# 會做：裝套件、補模型、寫設定、包出「語音輸入.app」放進 ~/Applications、設成開機自動啟動、打開它。
 set -euo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-STATE="${VOICE_DICTATION_STATE_DIR:-$HOME/.claude/voice-dictation}"
+STATE="${VOICE_DICTATION_STATE_DIR:-$HOME/.voice-dictation}"
 CONFIG="$STATE/config.json"
+APP="${VOICE_DICTATION_APP:-$HOME/Applications/語音輸入.app}"
+AGENT="$HOME/Library/LaunchAgents/com.urusa.voice-dictation.plist"
 MODEL_NAME="sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17"
 MODEL_URL="https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/$MODEL_NAME.tar.bz2"
-MARKETPLACE="claude-voice-dictation"
-PLUGIN="voice-dictation"
 ENGINE="${1:-}"
 
 say() { printf '\033[1m%s\033[0m\n' "$*"; }
@@ -25,6 +25,7 @@ case "$ENGINE" in ''|local|openai|parallelsandbox) ;; *) fail "引擎只能是 l
 say "檢查環境"
 [[ "$(uname -s)" == Darwin ]] || fail "目前只支援 macOS。"
 command -v node >/dev/null || fail "需要 Node.js 22 以上：brew install node，或到 https://nodejs.org 下載。"
+NODE="$(command -v node)"
 NODE_MAJOR="$(node -p 'process.versions.node.split(".")[0]')"
 (( NODE_MAJOR >= 22 )) || fail "Node.js 太舊（$(node -v)），需要 22 以上。"
 FFMPEG=""
@@ -32,13 +33,18 @@ for p in /opt/homebrew/bin/ffmpeg /usr/local/bin/ffmpeg "$(command -v ffmpeg || 
   [[ -n "$p" && -x "$p" ]] && { FFMPEG="$p"; break; }
 done
 [[ -n "$FFMPEG" ]] || fail "需要 ffmpeg 收音：brew install ffmpeg"
-command -v claude >/dev/null || fail "需要 Claude Code 的 claude 指令：https://docs.claude.com/claude-code"
-note "node $(node -v)、ffmpeg $FFMPEG、claude $(claude --version 2>/dev/null | head -1)"
+note "node $(node -v)（$NODE）、ffmpeg $FFMPEG"
 
 say "安裝套件"
 (cd "$DIR" && npm install --omit=dev --no-audit --no-fund --loglevel=error)
 
+# 舊版（綁在 Claude Code 上的 mod）的資料搬過來
+if [[ ! -d "$STATE" && -d "$HOME/.claude/voice-dictation" ]]; then
+  mv "$HOME/.claude/voice-dictation" "$STATE"
+  note "設定、詞彙、模型從 ~/.claude/voice-dictation 搬到 $STATE"
+fi
 mkdir -p "$STATE"
+
 if [[ -z "$ENGINE" ]]; then
   if [[ -f "$CONFIG" ]]; then
     ENGINE="$(node -e 'try{process.stdout.write(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).engine||"local")}catch{process.stdout.write("local")}' "$CONFIG")"
@@ -68,7 +74,9 @@ const [file, engine] = process.argv.slice(2);
 let config = {};
 try { config = JSON.parse(fs.readFileSync(file, 'utf8')); } catch {}
 config.engine = engine;
-if (engine === 'openai' && process.env.OPENAI_API_KEY && !config.openai?.apiKey) {
+// 舊版只在 Claude 桌面版收音；單獨小程式改成全部 app
+if (JSON.stringify(config.apps) === JSON.stringify(['com.anthropic.claudefordesktop'])) delete config.apps;
+if (engine === 'openai' && process.env.OPENAI_API_KEY && !config.openai?.apiKey && !config.openai?.apiKeyFile) {
   config.openai = { ...config.openai, apiKey: process.env.OPENAI_API_KEY };
 }
 fs.writeFileSync(file, `${JSON.stringify(config, null, 2)}\n`, { mode: 0o600 });
@@ -77,39 +85,49 @@ EOF
 if [[ "$ENGINE" == openai ]] && ! grep -q '"apiKey": "sk-\|"apiKeyFile"' "$CONFIG" && [[ -z "${OPENAI_API_KEY:-}" ]]; then
   note "還沒有 OpenAI key：在 $CONFIG 的 openai 裡加上 \"apiKey\": \"sk-...\"，或 \"apiKeyFile\": \"放 key 的檔案路徑\""
 fi
-if [[ "$ENGINE" == openai ]] && ! grep -q '"prompt"' "$CONFIG"; then
-  note "建議在 openai 裡加上 \"prompt\"，寫你常講的專有名詞，準度會明顯變好（見 README）。"
+
+# 舊版註冊在 Claude Code 的 plugin 拿掉
+if command -v claude >/dev/null && claude plugin list 2>/dev/null | grep -q "voice-dictation@claude-voice-dictation"; then
+  claude plugin uninstall "voice-dictation@claude-voice-dictation" >/dev/null 2>&1 || true
+  claude plugin marketplace remove claude-voice-dictation >/dev/null 2>&1 || true
+  note "已移除舊版的 Claude Code plugin"
 fi
 
-say "註冊到 Claude Code"
-if grep -q "$DIR" "$HOME/.claude/settings.json" 2>/dev/null || [[ "${CLAUDE_CODE_PLUGIN_DIRS:-}" == *"$DIR"* ]]; then
-  note "這個資料夾已經用 CLAUDE_CODE_PLUGIN_DIRS 載入，略過註冊。"
+say "選單列小程式：$APP"
+pkill -f "$APP/Contents/MacOS/applet" 2>/dev/null || true
+# 小程式本身沒變就不重包：重包會換簽名，麥克風與輔助使用權限得重新允許
+STAMP="$(printf '%s\n%s\n%s\n%s\n' "$(shasum -a 256 "$DIR/app/main.js" "$DIR/app/build.sh" | cut -d' ' -f1 | tr '\n' ' ')" "$NODE" "$DIR" "$STATE" | shasum -a 256 | cut -d' ' -f1)"
+if [[ -f "$APP/Contents/Resources/build-stamp" && "$(cat "$APP/Contents/Resources/build-stamp")" == "$STAMP" ]]; then
+  note "沒有變動，沿用原本的 app（權限不用重給）"
 else
-  if claude plugin marketplace list 2>/dev/null | grep -q "$MARKETPLACE"; then
-    claude plugin marketplace update "$MARKETPLACE" >/dev/null
-  else
-    claude plugin marketplace add "$DIR" >/dev/null
-  fi
-  if claude plugin list 2>/dev/null | grep -q "$PLUGIN@$MARKETPLACE"; then
-    note "已經裝過，讀的就是這個資料夾。"
-  else
-    claude plugin install "$PLUGIN@$MARKETPLACE" --scope user >/dev/null
-  fi
-  note "$PLUGIN@$MARKETPLACE（使用者範圍）"
+  "$DIR/app/build.sh" "$APP" "$DIR" "$NODE" "$STATE"
+  echo "$STAMP" > "$APP/Contents/Resources/build-stamp"
+  codesign --force --deep --sign - "$APP" >/dev/null 2>&1
+  note "已包好（第一次用或小程式有更新時，系統會再問一次權限）"
 fi
 
-if [[ -f "$STATE/listener.lock" ]]; then
-  PID="$(cat "$STATE/listener.lock" 2>/dev/null || true)"
-  if [[ -n "$PID" ]] && ps -p "$PID" -o command= 2>/dev/null | grep -q listen.mjs; then
-    kill -TERM "$PID" 2>/dev/null || true
-    note "常駐程式已重開，20 秒內會用新設定接手。"
-  fi
-fi
+mkdir -p "$(dirname "$AGENT")"
+cat > "$AGENT" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.urusa.voice-dictation</string>
+  <key>ProgramArguments</key><array><string>/usr/bin/open</string><string>-a</string><string>$APP</string></array>
+  <key>RunAtLoad</key><true/>
+</dict>
+</plist>
+EOF
+note "開機自動啟動：$AGENT"
 
-say "完成"
+open "$APP"
+
+say "完成：選單列出現麥克風圖示就是在跑了"
 cat <<EOF
-  1. 開一個新的 Claude Code session，送一句話（之後每個 session 都會自動載入）。
-  2. 第一次收音時 macOS 會問「Claude Code」能不能用麥克風，按允許。
-  3. 第一次貼上時會問「輔助使用」權限：系統設定 → 隱私權與安全性 → 輔助使用，打開 Claude Code。
-  之後 Claude 在最前面時直接講話，講完一句就貼進游標所在的輸入框。
+  第一次用要給兩個權限（只要一次）：
+  1. 麥克風：跳出「語音輸入想要取用麥克風」時按允許。
+  2. 輔助使用（貼上要用）：第一次講話時會跳出詢問，到「系統設定 → 隱私權與安全性 → 輔助使用」打開「語音輸入」。
+
+  第二步：請你常用的 AI 幫你填專有名詞並測試，直接把這句話貼給它：
+    請照 $DIR/AI_SETUP.md 幫我設定語音輸入的專有名詞，並跑測試給我看結果。
 EOF

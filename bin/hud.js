@@ -1,9 +1,10 @@
-// 錄音標示：浮在目前收音的 app 視窗（預設 Claude）標題列正中間的小標籤，不搶焦點、不擋點擊。
+// 錄音標示：浮在目前收音的 app 視窗標題列正中間的小標籤，不搶焦點、不擋點擊。
 // 由 listen.mjs 起（osascript -l JavaScript hud.js），從 stdin 一行一個指令：
 //   target:<pid>     跟著這個程序最前面的視窗（沒給就找名叫 Claude 的視窗）
 //   listening        ● 錄音中
 //   hearing          ● 說話中（聽到人聲）
 //   pasted           已貼上（亮 1.2 秒後回到上一個狀態）
+//   nofield          游標不在輸入框（亮 1.6 秒，那句沒貼）
 //   error:<訊息>     橘點＋訊息
 //   hide             收起來
 // stdin 關掉（listen.mjs 結束）就自己結束。
@@ -22,6 +23,7 @@ let mode = 'hide';
 let targetPid = 0;
 let message = '';
 let flashUntil = 0;
+let flashKind = 'pasted';
 let panel;
 let dot;
 let label;
@@ -60,7 +62,8 @@ function render() {
   }
   let text = '錄音中';
   let color = RED_DIM;
-  if (flashing) { text = '已貼上'; color = GREEN; }
+  if (flashing && flashKind === 'nofield') { text = '游標不在輸入框，沒貼'; color = ORANGE; }
+  else if (flashing) { text = '已貼上'; color = GREEN; }
   else if (mode === 'hearing') { text = '說話中'; color = RED; }
   else if (mode === 'error') { text = message.length > 24 ? `${message.slice(0, 24)}…` : message; color = ORANGE; }
   label.setStringValue($(text));
@@ -80,7 +83,8 @@ function render() {
 function handleLine(line) {
   if (line.startsWith('target:')) targetPid = Number(line.slice(7)) || 0;
   else if (line === 'listening' || line === 'hearing' || line === 'hide') mode = line;
-  else if (line === 'pasted') flashUntil = Date.now() + 1200;
+  else if (line === 'pasted') { flashKind = 'pasted'; flashUntil = Date.now() + 1200; }
+  else if (line === 'nofield') { flashKind = 'nofield'; flashUntil = Date.now() + 1600; }
   else if (line.startsWith('error:')) { mode = 'error'; message = line.slice(6); }
   render();
 }

@@ -14,7 +14,8 @@ const stateDir = mkdtempSync(join(tmpdir(), 'voice-dictation-test-'));
 process.env.VOICE_DICTATION_STATE_DIR = stateDir;
 
 const { finishText, isSpeech, withSpacing } = await import('../bin/text.mjs');
-const { loadConfig, DEFAULT_MODEL, isLiveModel } = await import('../bin/config.mjs');
+const { loadConfig, DEFAULT_MODEL, isLiveModel, appAllowed } = await import('../bin/config.mjs');
+const { charErrorRate, phantomTerms, normalize } = await import('../bin/vocab-test.mjs');
 const { createBatchEngine, wavFromPcm16 } = await import('../bin/engines/batch.mjs');
 const { createRealtimeEngine, openaiConnector } = await import('../bin/engines/realtime.mjs');
 const { createLocalEngine } = await import('../bin/engines/local.mjs');
@@ -43,6 +44,7 @@ test('設定檔：沒寫的照預設，engine 寫錯退回本機並說明', () =
   assert.match(error, /engine 只能是/);
   assert.equal(config.openai.model, 'x');
   assert.equal(config.output, 'traditional');
+  assert.deepEqual(config.apps, ['*']);
   assert.ok(config.local.model.endsWith(DEFAULT_MODEL));
   writeFileSync(join(stateDir, 'config.json'), '{ 壞掉');
   assert.match(loadConfig().error, /設定檔讀不懂/);
@@ -59,6 +61,16 @@ test('OpenAI：預設一般轉寫；key 可以放在 .env 檔；模型名稱決�
   assert.equal(isLiveModel('gpt-live-transcribe'), true);
   writeFileSync(join(stateDir, 'config.json'), JSON.stringify({ engine: 'openai', openai: { apiKeyFile: join(stateDir, 'nope.env') } }));
   assert.match(loadConfig().error, /讀不到 openai.apiKeyFile/);
+});
+
+test('詞彙檔：一行一個、# 是註解、和設定檔的 keywords 合併去重、拿掉 OpenAI 不收的字元', () => {
+  const vocab = join(stateDir, 'vocabulary.txt');
+  writeFileSync(vocab, '# 產品\nCubeLV\n平行沙盒  # 中文名\n\nsession\ncubelv\n<壞>詞\n');
+  writeFileSync(join(stateDir, 'config.json'), JSON.stringify({ engine: 'openai', openai: { keywords: ['Claude Code', 'CubeLV'], language: 'zh' } }));
+  const { config } = loadConfig();
+  assert.equal(config.openai.vocabularyFile, vocab); // 預設就讀狀態資料夾的 vocabulary.txt
+  assert.deepEqual(config.openai.keywords, ['Claude Code', 'CubeLV', '平行沙盒', 'session', '壞詞']);
+  assert.deepEqual(config.openai.languages, ['zh']); // 舊的 language 轉成 languages
 });
 
 test('WAV 檔頭：24kHz 單聲道 16-bit', () => {
@@ -83,6 +95,8 @@ async function fakeTranscriptions(handler) {
       auth: req.headers.authorization,
       model: form.get('model'),
       language: form.get('language'),
+      languages: form.getAll('languages[]'),
+      keywords: form.getAll('keywords[]'),
       prompt: form.get('prompt'),
       bytes: Buffer.from(await file.arrayBuffer()),
     };
@@ -106,7 +120,7 @@ test('OpenAI 一般轉寫：整句包成 WAV 上傳，先講的先貼（即使�
     const finals = [];
     const errors = [];
     const engine = createBatchEngine({
-      apiKey: 'sk-test', model: 'gpt-transcribe', language: 'zh', prompt: 'CubeLV、平行沙盒',
+      apiKey: 'sk-test', model: 'gpt-transcribe', languages: ['zh', 'en'], prompt: '開發對話', keywords: ['CubeLV', '平行沙盒'],
       onFinal: (t) => finals.push(t), onError: (m) => errors.push(m), log: () => {},
     });
     engine.append(speech(0.5, 1));
@@ -118,8 +132,10 @@ test('OpenAI 一般轉寫：整句包成 WAV 上傳，先講的先貼（即使�
     assert.deepEqual(finals, ['第一句', '第二句']);
     assert.equal(server.calls[0].auth, 'Bearer sk-test');
     assert.equal(server.calls[0].model, 'gpt-transcribe');
-    assert.equal(server.calls[0].language, 'zh');
-    assert.equal(server.calls[0].prompt, 'CubeLV、平行沙盒');
+    assert.equal(server.calls[0].language, null); // gpt-transcribe 不收單一 language
+    assert.deepEqual(server.calls[0].languages, ['zh', 'en']);
+    assert.deepEqual(server.calls[0].keywords, ['CubeLV', '平行沙盒']);
+    assert.equal(server.calls[0].prompt, '開發對話');
     assert.equal(server.calls[0].bytes.toString('ascii', 0, 4), 'RIFF');
     assert.equal(server.calls[0].bytes.length, 44 + 24000);
     assert.equal(engine.busy(), false);
@@ -174,11 +190,12 @@ test('OpenAI 直連：帶自己的 key、先送 session 設定，再送音訊與
   });
   await new Promise((r) => wss.on('listening', r));
   process.env.VOICE_DICTATION_OPENAI_URL = `ws://127.0.0.1:${wss.address().port}`;
+  let engine;
   try {
     const finals = [];
     const errors = [];
-    const engine = createRealtimeEngine({
-      connector: openaiConnector({ apiKey: 'sk-test', model: 'gpt-live-transcribe', language: 'zh' }),
+    engine = createRealtimeEngine({
+      connector: openaiConnector({ apiKey: 'sk-test', model: 'gpt-live-transcribe', languages: ['zh'] }),
       onFinal: (text) => finals.push(text),
       onError: (message) => errors.push(message),
       log: () => {},
@@ -199,9 +216,10 @@ test('OpenAI 直連：帶自己的 key、先送 session 設定，再送音訊與
     assert.equal(seen.appends, 1);
     for (let i = 0; i < 10 && engine.busy(); i += 1) await new Promise((r) => setTimeout(r, 20));
     assert.equal(engine.busy(), false);
-    engine.close();
   } finally {
+    engine?.close();
     delete process.env.VOICE_DICTATION_OPENAI_URL;
+    for (const client of wss.clients) client.terminate();
     wss.close();
   }
 });
@@ -221,7 +239,7 @@ test('OpenAI 直連：沒有 key 時直接說要設定', async () => {
   engine.close();
 });
 
-const model = join(process.env.HOME, '.claude', 'voice-dictation', 'models', DEFAULT_MODEL);
+const model = join(process.env.HOME, '.voice-dictation', 'models', DEFAULT_MODEL);
 test('本機辨識：模型附的中文範例聽得出來', { skip: !existsSync(join(model, 'tokens.txt')) && '沒裝本機模型' }, async () => {
   const raw = execFileSync(findFfmpeg(), ['-hide_banner', '-loglevel', 'error', '-i', join(model, 'test_wavs', 'zh.wav'),
     '-ac', '1', '-ar', '24000', '-f', 's16le', 'pipe:1'], { maxBuffer: 1 << 26 });
@@ -239,4 +257,23 @@ test('本機辨識：找不到模型時說要重跑 install.sh', () => {
   const errors = [];
   createLocalEngine({ model: join(stateDir, 'nope'), onFinal: () => {}, onError: (m) => errors.push(m), log: () => {} });
   assert.match(errors[0], /找不到本機模型/);
+});
+
+test('哪些 app 收音：預設全部，開會的 app 和自己除外；也可以只指定幾個', () => {
+  writeFileSync(join(stateDir, 'config.json'), JSON.stringify({ engine: 'local' }));
+  const { config } = loadConfig();
+  assert.equal(appAllowed(config, 'com.google.Chrome'), true);
+  assert.equal(appAllowed(config, 'us.zoom.xos'), false);
+  assert.equal(appAllowed(config, 'com.urusa.voice-dictation'), false);
+  assert.equal(appAllowed(config, ''), false);
+  const only = { ...config, apps: ['com.anthropic.claudefordesktop'] };
+  assert.equal(appAllowed(only, 'com.anthropic.claudefordesktop'), true);
+  assert.equal(appAllowed(only, 'com.google.Chrome'), false);
+});
+
+test('專有名詞測試的比對：不管空白標點大小寫、算字錯誤率、抓沒講卻出現的詞', () => {
+  assert.equal(normalize('Test Flight，送審。'), 'testflight送審');
+  assert.equal(charErrorRate('丟到 TestFlight 送審。', '丟到 test flight 送審'), 0);
+  assert.equal(charErrorRate('平行沙盒', '平行沙河'), 0.25);
+  assert.deepEqual(phantomTerms('今天去吃牛肉麵', '今天去吃牛肉麵 CubeLV', ['CubeLV', '牛肉麵', 'PR']), ['CubeLV']);
 });

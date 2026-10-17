@@ -23,7 +23,7 @@ export function wavFromPcm16(pcm, sampleRate = 24000) {
   return Buffer.concat([header, pcm]);
 }
 
-export function createBatchEngine({ apiKey, model = 'gpt-transcribe', language = '', prompt = '', onFinal, onError, log }) {
+export function createBatchEngine({ apiKey, model = 'gpt-transcribe', languages = [], prompt = '', keywords = [], onFinal, onError, log }) {
   const url = process.env.VOICE_DICTATION_OPENAI_HTTP_URL || 'https://api.openai.com/v1/audio/transcriptions';
   let chunks = [];
   let bytes = 0;
@@ -47,7 +47,9 @@ export function createBatchEngine({ apiKey, model = 'gpt-transcribe', language =
     form.append('file', new Blob([wav], { type: 'audio/wav' }), 'speech.wav');
     form.append('model', model);
     form.append('response_format', 'json');
-    if (language) form.append('language', language);
+    // gpt-transcribe 用 languages[]（取代單一的 language）、keywords[]（一詞一欄）
+    for (const lang of languages) form.append('languages[]', lang);
+    for (const word of keywords) form.append('keywords[]', word);
     if (prompt) form.append('prompt', prompt);
     const res = await fetch(url, {
       method: 'POST',

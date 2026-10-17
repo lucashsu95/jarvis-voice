@@ -1,9 +1,36 @@
-// 把一段字貼進目前游標所在的輸入框：暫存剪貼簿 → 放字 → 送 Cmd+V → 還原剪貼簿。
-// 用法：osascript -l JavaScript paste.js <字> [--dry] [--ask]
-// --dry 不送按鍵，只做剪貼簿暫存與還原（測試用）。送按鍵要「輔助使用」權限；
-// --ask 沒權限時跳出系統的權限詢問（只在第一次沒權限時帶）。
+// 把一段字貼進目前游標所在的輸入框：確認游標在輸入框 → 暫存剪貼簿 → 放字 → 送 Cmd+V → 還原剪貼簿。
+// 用法：osascript -l JavaScript paste.js <字> [--pid <前景 app 的 pid>] [--dry] [--ask]
+//   --pid  檢查那個 app 目前的焦點是不是文字欄位；明確不是（例如在看網頁本身）就不貼，回 not-text-field:<角色>
+//   --dry  不送按鍵，只做剪貼簿暫存與還原（測試用）
+//   --ask  沒有「輔助使用」權限時跳出系統的詢問（只在第一次沒權限時帶）
+// 回傳：ok、no-accessibility、not-text-field:<角色>、dry:<字>
 ObjC.import('Cocoa');
 ObjC.import('ApplicationServices');
+
+// JXA 對 AX 的 out 參數型別對不上，自己綁簽名
+ObjC.bindFunction('AXUIElementCreateApplication', ['void *', ['int']]);
+ObjC.bindFunction('AXUIElementCopyAttributeValue', ['int', ['void *', 'id', 'void **']]);
+ObjC.bindFunction('AXUIElementSetAttributeValue', ['int', ['void *', 'id', 'id']]);
+
+const TEXT_ROLES = ['AXTextField', 'AXTextArea', 'AXComboBox', 'AXSearchField'];
+
+// 回傳 { known, editable, role }：讀不到（app 不支援輔助功能）就當不知道，照貼
+function focusedField(pid) {
+  if (!pid) return { known: false };
+  const app = $.AXUIElementCreateApplication(pid);
+  // Chromium、Electron 要先打開輔助樹才讀得到網頁裡的欄位；其他 app 會忽略
+  $.AXUIElementSetAttributeValue(app, $('AXManualAccessibility'), $.NSNumber.numberWithBool(true));
+  const focused = Ref();
+  if ($.AXUIElementCopyAttributeValue(app, $('AXFocusedUIElement'), focused) !== 0) return { known: false };
+  const roleRef = Ref();
+  if ($.AXUIElementCopyAttributeValue(focused[0], $('AXRole'), roleRef) !== 0) return { known: false };
+  const role = ObjC.unwrap(ObjC.castRefToObject(roleRef[0])) || '';
+  if (TEXT_ROLES.includes(role)) return { known: true, editable: true, role };
+  // 網頁裡的 contenteditable 編輯器：Chromium／WebKit 會掛可編輯的祖先
+  const ancestor = Ref();
+  if ($.AXUIElementCopyAttributeValue(focused[0], $('AXEditableAncestor'), ancestor) === 0) return { known: true, editable: true, role };
+  return { known: true, editable: false, role };
+}
 
 function snapshot(pb) {
   const saved = [];
@@ -49,12 +76,16 @@ function pressCommandV() {
 function run(argv) {
   const text = argv[0] || '';
   const dry = argv.includes('--dry');
+  const pidAt = argv.indexOf('--pid');
+  const pid = pidAt >= 0 ? Number(argv[pidAt + 1]) || 0 : 0;
   if (!dry && !$.AXIsProcessTrusted()) {
     if (argv.includes('--ask')) {
       $.AXIsProcessTrustedWithOptions($.NSDictionary.dictionaryWithObjectForKey($.NSNumber.numberWithBool(true), $('AXTrustedCheckOptionPrompt')));
     }
     return 'no-accessibility';
   }
+  const field = focusedField(pid);
+  if (field.known && !field.editable) return `not-text-field:${field.role}`;
   const pb = $.NSPasteboard.generalPasteboard;
   const saved = snapshot(pb);
   pb.clearContents;
