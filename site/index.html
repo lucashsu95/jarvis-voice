@@ -1,0 +1,215 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>JarvisVoice：自動語音輸入與操作</title>
+<meta name="description" content="macOS 選單列小程式。開著就自動收音，你講的話直接寫進正在用的 app；講指令，它就幫你操作 app。">
+<link rel="icon" href="favicon.png">
+<style>
+  :root {
+    --bg: #fbfaf8;
+    --surface: #ffffff;
+    --text: #18181b;
+    --muted: #5b5b63;
+    --line: #e6e4df;
+    --accent: #2f54d9;
+    --accent-ink: #ffffff;
+    --code-bg: #f2f1ed;
+    --icon-filter: none;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #111214;
+      --surface: #1a1b1e;
+      --text: #ececee;
+      --muted: #a3a3ab;
+      --line: #2c2d31;
+      --accent: #8ea4ff;
+      --accent-ink: #111214;
+      --code-bg: #202125;
+      --icon-filter: invert(1);
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 17px/1.7 -apple-system, BlinkMacSystemFont, "PingFang TC", "Noto Sans TC", "Microsoft JhengHei", sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  main { max-width: 960px; margin: 0 auto; padding: 0 16px; }
+  a { color: var(--accent); }
+  h1, h2, h3 { line-height: 1.3; margin: 0; }
+  h2 { font-size: 26px; margin-bottom: 20px; }
+  h3 { font-size: 19px; margin-bottom: 8px; }
+  p { margin: 0 0 12px; }
+  section { padding: 56px 0; border-top: 1px solid var(--line); }
+
+  .hero { padding: 72px 0 56px; display: grid; gap: 20px; justify-items: start; }
+  .hero img { width: 88px; height: 88px; filter: var(--icon-filter); }
+  .hero h1 { font-size: clamp(34px, 6vw, 52px); letter-spacing: -0.01em; }
+  .hero h1 span { display: block; font-size: 0.5em; font-weight: 600; color: var(--muted); margin-top: 6px; letter-spacing: 0; }
+  .hero .lead { font-size: 20px; color: var(--muted); max-width: 640px; }
+  .actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 4px; }
+  .button {
+    display: inline-block; padding: 11px 20px; border-radius: 10px; font-weight: 600; text-decoration: none;
+    background: var(--accent); color: var(--accent-ink);
+  }
+  .button.secondary { background: transparent; color: var(--text); border: 1px solid var(--line); }
+
+  .layers { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; }
+  .card { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 22px; }
+  .card .tag { font-size: 14px; font-weight: 600; color: var(--accent); margin-bottom: 6px; }
+  .card p { color: var(--muted); font-size: 16px; margin: 0; }
+
+  .example { display: grid; gap: 16px; }
+  .said, .wrote { padding: 16px 18px; border-radius: 12px; }
+  .said { background: var(--code-bg); }
+  .wrote { background: var(--surface); border: 1px solid var(--line); }
+  .label { font-size: 14px; font-weight: 600; color: var(--muted); margin-bottom: 4px; }
+  .steps { margin: 0; padding-left: 22px; color: var(--muted); }
+  .steps li { margin: 4px 0; }
+  .note { font-size: 15px; color: var(--muted); }
+
+  .install { display: grid; gap: 28px; }
+  /* grid 裡的東西預設不會比內容窄：長的程式碼行會把整頁撐寬，手機上要讓它自己捲 */
+  .install > *, .example > *, .layers > * { min-width: 0; }
+  pre {
+    margin: 10px 0 0; padding: 16px 18px; border-radius: 12px; background: var(--code-bg);
+    overflow-x: auto; font: 15px/1.6 ui-monospace, "SF Mono", Menlo, monospace; white-space: pre;
+  }
+  blockquote { margin: 10px 0 0; padding: 14px 18px; border-left: 3px solid var(--accent); background: var(--surface); border-radius: 0 12px 12px 0; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 16px; }
+  th, td { text-align: left; padding: 12px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { font-weight: 600; color: var(--muted); font-size: 14px; }
+  .table-wrap { overflow-x: auto; }
+
+  ul.plain { margin: 0; padding-left: 22px; }
+  ul.plain li { margin: 6px 0; }
+
+  footer { padding: 32px 0 56px; border-top: 1px solid var(--line); color: var(--muted); font-size: 15px; }
+
+  @media (max-width: 600px) {
+    body { font-size: 16px; }
+    .hero { padding: 48px 0 40px; }
+    .hero img { width: 72px; height: 72px; }
+    .hero .lead { font-size: 18px; }
+    section { padding: 44px 0; }
+    h2 { font-size: 23px; }
+  }
+</style>
+</head>
+<body>
+<main>
+  <header class="hero">
+    <img src="icon.png" alt="JarvisVoice 的圖示：循環箭頭包住三條聲波">
+    <h1>JarvisVoice<span>自動語音輸入與操作</span></h1>
+    <p class="lead">macOS 選單列小程式。開著就自動收音，你講的話直接寫進正在用的 app；講指令，它就幫你操作 app。Claude、ChatGPT、瀏覽器、LINE、備忘錄都可以。只寫不送出，要送自己按 Enter。</p>
+    <div class="actions">
+      <a class="button" href="https://github.com/urusaqqrun/jarvis-voice">到 GitHub 安裝</a>
+      <a class="button secondary" href="https://github.com/urusaqqrun/jarvis-voice/blob/main/docs/ARCHITECTURE.md">架構與實測數字</a>
+    </div>
+  </header>
+
+  <section>
+    <h2>三層，從選單打開</h2>
+    <div class="layers">
+      <div class="card">
+        <div class="tag">第一層・裝好就有</div>
+        <h3>語音輸入</h3>
+        <p>講完一句（停約 0.85 秒），轉寫出來的字就貼進游標所在的輸入框。不用按任何鍵。</p>
+      </div>
+      <div class="card">
+        <div class="tag">第二層</div>
+        <h3>AI 整理</h3>
+        <p>一段話講完，帶上游標前後的字、app、網址交給 AI，整理成你本來想打的字：去贅字、改口只留結果、條列、依 app 調語氣、照你的專有名詞。OpenAI、DeepSeek、Claude 三選一。</p>
+      </div>
+      <div class="card">
+        <div class="tag">第三層</div>
+        <h3>自動找輸入框、語音指令</h3>
+        <p>游標不在輸入框也能寫，它會挑出該寫的輸入框。講「進到台積電的個股頁」，它看著畫面一步一步幫你點。每一步由 Jev 決定，約 0.2 秒。</p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>實際的樣子</h2>
+    <div class="example">
+      <div class="said">
+        <div class="label">你講的</div>
+        嗯那個我們明天三點開會，不對，四點開會，然後記得帶那個筆電
+      </div>
+      <div class="wrote">
+        <div class="label">寫進輸入框的（AI 整理後）</div>
+        我們明天四點開會，記得帶筆電。
+      </div>
+      <div class="said">
+        <div class="label">你講的（游標不在輸入框）</div>
+        進到台積電的個股頁
+      </div>
+      <div class="wrote">
+        <div class="label">它做的</div>
+        <ol class="steps">
+          <li>在搜尋框填「台積電」</li>
+          <li>按 Enter</li>
+          <li>點搜尋結果裡的「台積電 2330」</li>
+          <li>看到個股頁，停下來</li>
+        </ol>
+      </div>
+      <p class="note">指令的例子是在測試用的看盤視窗實測：四步共 3.3 秒，每一步的決策 0.17–0.28 秒。</p>
+    </div>
+  </section>
+
+  <section>
+    <h2>兩個步驟裝好</h2>
+    <div class="install">
+      <div>
+        <h3>第一步：裝好、打開小程式</h3>
+        <p>需要 macOS、Node.js 22 以上、ffmpeg（<code>brew install node ffmpeg</code>）。</p>
+        <pre>git clone https://github.com/urusaqqrun/jarvis-voice.git ~/jarvis-voice
+cd ~/jarvis-voice
+./install.sh openai</pre>
+        <p class="note">不想付轉寫的錢，最後一行改成 <code>./install.sh local</code>（本機辨識，聲音不離開你的電腦）。第一次用要允許麥克風和「輔助使用」兩個權限。</p>
+      </div>
+      <div>
+        <h3>第二步：請你的 AI 幫你設定</h3>
+        <p>打開你常用的 AI（Claude Code、Codex、ChatGPT 都可以），把這句話貼給它：</p>
+        <blockquote>請照 ~/jarvis-voice/AI_SETUP.md 幫我設定 JarvisVoice：填專有名詞並跑測試，也問我要不要開 AI 整理、自動找輸入框、語音指令，要的話幫我設定好並檢查。</blockquote>
+        <p class="note">它會從你打過的字找出常講的專有名詞，問你要用哪家 AI，請你自己把 key 貼進只有你讀得到的檔案，最後跑檢查給你看。</p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>要花多少錢</h2>
+    <div class="table-wrap">
+      <table>
+        <tr><th>項目</th><th>怎麼算</th><th>一天講 1 小時，一個月約</th></tr>
+        <tr><td>轉寫（OpenAI <code>gpt-transcribe</code>）</td><td>送出的音訊每分鐘 US$0.0045</td><td>US$7.4</td></tr>
+        <tr><td>轉寫（本機辨識）</td><td>在你的電腦上跑</td><td>免費</td></tr>
+        <tr><td>AI 整理（DeepSeek、Claude 或 OpenAI）</td><td>每段約 US$0.00003–0.00008</td><td>不到 US$1</td></tr>
+        <tr><td>第三層決策（Jev，選用）</td><td>每次約 US$0.00001</td><td>約 US$0.1</td></tr>
+      </table>
+    </div>
+    <p class="note">費用用你自己的 key，直接付給各家。收音一直開著，旁邊有人講話也會送去轉寫；開會、看影片時從選單按「暫停收音」。</p>
+  </section>
+
+  <section>
+    <h2>資料去哪裡</h2>
+    <ul class="plain">
+      <li>聲音：只送有人聲的片段給你選的轉寫服務；用本機辨識就不離開電腦。</li>
+      <li>AI 整理開著時：游標前後各 400 字、選取的字、app 名稱、視窗標題、網址，送給你選的 AI。</li>
+      <li>第三層：畫面上按鈕、連結、輸入框的名稱，送給決策器（Jev 或你選的 AI）。</li>
+      <li>歷史、詞彙、設定、key 都只存在你的電腦。</li>
+    </ul>
+  </section>
+
+  <footer>
+    JarvisVoice 是開源專案（MIT 授權）・<a href="https://github.com/urusaqqrun/jarvis-voice">GitHub</a>
+  </footer>
+</main>
+</body>
+</html>

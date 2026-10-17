@@ -2,6 +2,8 @@
 
 <img src="design/icon-big.png" width="96" alt="JarvisVoice 的選單列圖示：循環箭頭包住三條聲波">
 
+網站：[jarvis-voice.com](https://jarvis-voice.com)
+
 macOS 選單列小程式。開著就自動收音，你講的話直接寫進正在用的 app：Claude、ChatGPT、瀏覽器、LINE、備忘錄都可以。只寫不送出，要送自己按 Enter。
 
 分三層。第一層裝好就有，第二、三層從選單打開，每一層都是在前一層上面多做一點：
@@ -165,6 +167,7 @@ AI 會：
 - `bin/ax-agent.js`：常駐的「輔助使用」小幫手（JXA）。讀上下文、找輸入框、對焦、貼上（暫存剪貼簿 → Cmd+V → 還原，只送給最前面的 app）、選回剛貼的字、列出畫面上的按鈕並操作。
 - `bin/editor.mjs`：AI 整理。`bin/ai-check.mjs`：檢查 AI 整理和決策器設定好了沒。`bin/decide.mjs`：第三層的決策（Jev）。`bin/commander.mjs`：語音指令。`bin/targeter.mjs`：挑輸入框的規則。`bin/learn.mjs`：自動學詞。
 - `bin/vocab-test.mjs`：專有名詞測試（見 [AI_SETUP.md](AI_SETUP.md)）。
+- `site/`：網站 jarvis-voice.com，push 到 main 後由 GitHub Actions 發到 GitHub Pages。
 
 ## 開發
 
