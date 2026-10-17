@@ -16,7 +16,7 @@ const { buildPrompt, parseResult, editSegment } = await import('../bin/editor.mj
 const { loadConfig, aiKey, styleFor } = await import('../bin/config.mjs');
 const { rankTargets } = await import('../bin/targeter.mjs');
 const { createDecider, fieldQuestions, stepQuestions } = await import('../bin/decide.mjs');
-const { runCommand, safeElements } = await import('../bin/commander.mjs');
+const { runCommand } = await import('../bin/commander.mjs');
 const { extractEdited, replacedChunks, appendVocabulary } = await import('../bin/learn.mjs');
 const { wavFromPcm16 } = await import('../bin/engines/batch.mjs');
 
@@ -206,7 +206,7 @@ function fakeAx(screens) {
 
 const el = (handle, role, label, y = 100) => ({ handle, role, subrole: '', label, x: 10, y, w: 100, h: 20, focused: false });
 
-test('指令模式：搜尋框填字 → Enter → 點結果 → 完成；危險按鈕不列進選項', async () => {
+test('指令模式：搜尋框填字 → Enter → 點結果 → 完成；畫面上的東西全部都是選項', async () => {
   const win = { x: 0, y: 0, w: 1000, h: 800, title: '自選股' };
   const screens = [
     { window: win, elements: [el(1, 'AXButton', '刪除自選'), el(2, 'AXTextField', '搜尋股票', 20), el(3, 'AXLink', '大盤')] },
@@ -242,18 +242,23 @@ test('指令模式：搜尋框填字 → Enter → 點結果 → 完成；危險
   assert.equal(result.ok, true);
   assert.deepEqual(ax.acts.map((a) => [a.action, a.handle, a.text ?? '']), [['fill', 2, '台積電'], ['enter', 2, ''], ['press', 4, '']]);
   assert.equal(result.steps.length, 3);
-  assert.ok(!seenOptions[0].includes('刪除'), '刪除按鈕不能出現在選項裡');
-  assert.equal(safeElements([el(1, 'AXButton', 'Send'), el(2, 'AXButton', '設定')]).length, 1);
+  assert.ok(seenOptions[0].includes('刪除自選'), '畫面上的按鈕都要給決策器看');
 });
 
-test('指令模式：信心不夠就停、要切 app 找不到就說', async () => {
+test('指令模式：信心太低（動作 < 0.3、對象 < 0.25）就停、按了暫停就停、要切 app 找不到就說', async () => {
   const ax = fakeAx([{ window: { title: 'x' }, elements: [el(1, 'AXButton', '設定')] }]);
-  const unsure = { engine: () => 'Jev', decide: async () => ({ action: { choice: 'click', confidence: 0.3 }, target: { choice: 'e0', confidence: 0.9 } }) };
+  const unsure = { engine: () => 'Jev', decide: async () => ({ action: { choice: 'click', confidence: 0.2 }, target: { choice: 'e0', confidence: 0.9 } }) };
   const base = { ax, log: () => {}, frontApp: async () => ({ pid: 1 }), goal: '打開設定', context: { app: 'Slack' } };
   const r = await runCommand({ ...base, decider: unsure, openApp: async () => true });
   assert.equal(r.ok, false);
   assert.match(r.reason, /不確定下一步/);
   assert.equal(ax.acts.length, 0);
+  const vague = { engine: () => 'Jev', decide: async () => ({ action: { choice: 'click', confidence: 0.35 }, target: { choice: 'e0', confidence: 0.2 } }) };
+  assert.match((await runCommand({ ...base, decider: vague, openApp: async () => true })).reason, /不確定要點哪一個/);
+  const sure = { engine: () => 'Jev', decide: async () => ({ action: { choice: 'click', confidence: 0.35 }, target: { choice: 'e0', confidence: 0.3 } }) };
+  const paused = await runCommand({ ...base, decider: sure, openApp: async () => true, stopped: () => ax.acts.length >= 2 });
+  assert.match(paused.reason, /按了暫停/);
+  assert.equal(ax.acts.length, 2); // 門檻以上照做，按暫停才停
   const missing = await runCommand({ ...base, decider: unsure, openApp: async () => false, app: '不存在的 App' });
   assert.match(missing.reason, /找不到 app/);
 });

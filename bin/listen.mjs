@@ -453,10 +453,6 @@ async function judgeInField(raw, front, ctx) {
 // 沒有 Jev 就照 AI 整理的判斷（游標在輸入框時只有開頭講「指令」才算）
 async function aiEdit(raw, front, ctx) {
   if (!aiReady()) return null;
-  if (config.ai.skipApps.includes(front.bundle) || ctx?.field.secure) {
-    log('密碼欄或排除的 app，不送 AI，直接貼原稿');
-    return null;
-  }
   const inField = !!ctx?.field.editable;
   const field = inField ? [ctx.field.label, ctx.field.role].filter(Boolean).join('，') : '';
   const jev = commandsOn() && config.jev.apiKey && front.pid;
@@ -514,6 +510,7 @@ async function runVoiceCommand(result, raw, front, ctx) {
   try {
     outcome = await runCommand({
       ax, decider, log, frontApp, openApp, goal: result.goal, text: result.text, app: result.app, context: { app: ctx?.app ?? '' },
+      stopped: () => existsSync(PAUSED),
     });
   } catch (err) {
     outcome = { ok: false, reason: err.message, steps: [] };

@@ -23,7 +23,6 @@
 //     "segmentPauseMs": 1800,          // 停多久算一段講完
 //     "contextChars": 400,             // 游標前後各讀幾個字給 AI
 //     "styles": {},                    // 各 app（bundle id）或網站（網域）的語氣，蓋過內建的
-//     "skipApps": [...],               // 這些 app 不讀上下文、不送 AI（密碼管理）
 //     "history": true,                 // 本機歷史：<狀態資料夾>/history.jsonl
 //     "learn": true                    // 貼上後自己改了專有名詞，就自動加進詞彙檔
 //   },
@@ -81,8 +80,6 @@ export function defaults() {
     ai: {
       enabled: false, provider: 'deepseek', models: {}, keys: {}, keyFiles: {}, keyCommands: {},
       segmentPauseMs: 1800, contextChars: 400, timeoutMs: 6000, styles: {},
-      // 密碼管理不讀上下文、不送 AI
-      skipApps: ['com.1password.1password', 'com.agilebits.onepassword7', 'com.bitwarden.desktop', 'com.apple.keychainaccess', 'com.apple.Passwords'],
       history: true, learn: true,
     },
     autoFocus: false,
@@ -229,7 +226,6 @@ export function loadConfig() {
     config.ai.provider = base.ai.provider;
   }
   for (const key of ['models', 'keys', 'keyFiles', 'keyCommands', 'styles']) if (typeof config.ai[key] !== 'object' || !config.ai[key]) config.ai[key] = {};
-  if (!Array.isArray(config.ai.skipApps)) config.ai.skipApps = base.ai.skipApps;
   config.autoFocus = config.autoFocus === true;
   config.commands = config.commands === true;
   config.jev.apiKey = config.jev.apiKey || keyFromFile(config.jev.apiKeyFile, 'TYPESAFE_API_KEY') || keyFromCommand(config.jev.apiKeyCommand)

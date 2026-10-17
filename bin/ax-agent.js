@@ -178,7 +178,6 @@ function context({ pid, chars = 400 }) {
   if (!f.editable) return out;
   out.field.label = labelOf(f.root) || labelOf(f.el);
   out.field.handle = keep(f.root);
-  if (f.secure) return out; // 密碼欄不讀內容
   const range = rangeOf(f.root);
   const count = Number(ObjC.unwrap(attr(f.root, 'AXNumberOfCharacters')) || 0);
   if (!range) return out;
@@ -284,7 +283,7 @@ function paste({ pid, text: value, dry, ask }) {
 function replace({ pid, old, text: value }) {
   if (!trusted(false)) return { result: 'no-accessibility' };
   const f = focusedField(appElement(pid));
-  if (!f.editable || f.secure) return { result: 'no-field' };
+  if (!f.editable) return { result: 'no-field' };
   const range = rangeOf(f.root);
   if (!range || range.length || range.location < old.length) return { result: 'mismatch' };
   const start = range.location - old.length;

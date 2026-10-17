@@ -61,7 +61,6 @@ test('AX 小幫手：讀上下文、找輸入框、對焦、列元件；不在�
     await ax.call('focus', { handle: byLabel['密碼'].handle });
     const secret = await ax.call('context', { pid });
     assert.equal(secret.field.secure, true);
-    assert.equal(secret.field.before, undefined); // 密碼欄不讀內容
 
     assert.equal((await ax.call('read', { handle: byLabel['訊息'].handle })).value, '今天的待辦：');
     const { elements } = await ax.call('elements', { pid });
@@ -91,7 +90,7 @@ async function openStockWindow() {
 
 const title = async (pid) => (await ax.call('elements', { pid })).window.title;
 
-test('指令模式對真的視窗（背景、不送按鍵）：填字 → 確認 → 點結果，刪除按鈕不在選項裡', { skip: !trusted && '沒有輔助使用權限', timeout: 30_000 }, async () => {
+test('指令模式對真的視窗（背景、不送按鍵）：填字 → 確認 → 點結果', { skip: !trusted && '沒有輔助使用權限', timeout: 30_000 }, async () => {
   const win = await openStockWindow();
   try {
     const plan = [['fill', '搜尋股票'], ['enter', ''], ['click', '台積電 2330'], ['done', '']];
@@ -111,7 +110,7 @@ test('指令模式對真的視窗（背景、不送按鍵）：填字 → 確認
     });
     assert.equal(result.ok, true, result.reason);
     assert.equal(await title(win.pid), '台積電 2330 個股');
-    assert.ok(!options.includes('刪除自選'));
+    assert.ok(options.includes('刪除自選'), '畫面上的按鈕都要給決策器看');
   } finally {
     win.kill();
   }
