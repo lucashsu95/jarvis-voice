@@ -9,7 +9,7 @@
 // 設定檔改了會自動換引擎。狀態寫在 status.json 給狀態列讀；有 paused 檔就暫停。
 // stdout 每行一個 JSON（state、pasted）。
 // 選項：--app 由選單列小程式帶起（log 寫進 listen.log，小程式不在了就結束）。
-// 測試選項：--file <音檔> 用音檔代替麥克風、讀完收尾結束；--dry-paste 只印不貼；--always 不看前景 app；--hud 測試時也顯示標籤。
+// 測試選項：--file <音檔> 用音檔代替麥克風、讀完收尾結束；--dry-paste 只印不貼；--always 不看前景 app。
 
 import { execFile, spawn } from 'node:child_process';
 import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
@@ -77,48 +77,23 @@ function releaseLock() {
   try { if (readFileSync(LOCK, 'utf8').trim() === String(process.pid)) unlinkSync(LOCK); } catch { /* 已經不在 */ }
 }
 
-// ---- 錄音標示（bin/hud.js：浮在目標 app 視窗標題列中間的小標籤）----
+// ---- 即時狀態（選單列小程式顯示：說話中、已貼上、沒有輸入框）----
 
-const showHud = !inputFile || argv.includes('--hud');
 let stopping = false;
-let hud = null;
 let hudMode = '';
-let hudTarget = 0;
 
+// 交給選單列小程式（--app 時從 stdout 送出）；hearing、listening、hide、error:<訊息>、pasted、nofield
 function hudWrite(line) {
-  if (!showHud) return;
-  if (!hud) {
-    hud = spawn('/usr/bin/osascript', ['-l', 'JavaScript', join(HERE, 'hud.js')], { stdio: ['pipe', 'ignore', 'ignore'] });
-    hud.stdin.on('error', () => {});
-    const self = hud;
-    hud.on('exit', () => {
-      if (hud !== self) return;
-      hud = null;
-      const again = hudMode;
-      hudMode = '';
-      hudTarget = 0;
-      if (again && again !== 'hide' && !stopping) setTimeout(() => hudShow(again), 1000);
-    });
-    if (hudTarget) hud.stdin.write(`target:${hudTarget}\n`);
-  }
-  hud.stdin.write(`${line}\n`);
+  if (appMode) emit({ type: 'hud', line });
 }
 
-// 標籤要顯示的狀態：listening、hearing、error:<訊息>、hide
 function hudShow(mode) {
   if (mode === hudMode) return;
   hudMode = mode;
   hudWrite(mode);
 }
 
-function hudFollow(pid) {
-  if (!pid || pid === hudTarget) return;
-  hudTarget = pid;
-  if (hud) hud.stdin.write(`target:${pid}\n`);
-}
-
-// 貼上後閃一下「已貼上」
-const hudFlash = () => { if (hudMode && hudMode !== 'hide') hudWrite('pasted'); };
+const hudFlash = () => hudWrite('pasted');
 
 // ---- 設定與引擎 ----
 
@@ -225,11 +200,14 @@ const queueTurn = () => {
 
 // 診斷：每 15 秒記一次這段時間的最大音量，看麥克風到底有沒有收到聲音（全 0＝沒權限或被別的程式占住）
 let levelPeak = 0;
+let reopenCapture = false;
 let levelSince = Date.now();
 function trackLevel(samples) {
   for (const v of samples) { const a = Math.abs(v) / 32768; if (a > levelPeak) levelPeak = a; }
   if (Date.now() - levelSince < 15_000) return;
-  log(`麥克風 15 秒內最大音量 ${levelPeak.toFixed(3)}（人聲門檻 0.055）${levelPeak === 0 ? '：完全沒聲音，多半是沒有麥克風權限' : ''}`);
+  log(`麥克風 15 秒內最大音量 ${levelPeak.toFixed(3)}（人聲門檻 0.055）${levelPeak === 0 ? '：完全沒聲音，多半是剛給麥克風權限前就開了，重開麥克風' : ''}`);
+  // 權限詢問還沒按允許時開的麥克風，允許之後也一直收到 0：重開一次就好
+  if (levelPeak === 0) reopenCapture = true;
   levelPeak = 0;
   levelSince = Date.now();
 }
@@ -392,7 +370,6 @@ function shutdown(code) {
   engine?.close();
   releaseLock();
   setState('off');
-  try { hud?.stdin.end(); hud?.kill(); } catch { /* 已經結束 */ }
   process.stdout.write('', () => process.exit(code));
 }
 
@@ -404,8 +381,8 @@ async function tick() {
   const front = always ? { bundle: 'test', pid: 0 } : await frontApp();
   const active = !paused && (always || allowed(front.bundle));
   frontActive = active;
-  if (active) hudFollow(front.pid);
 
+  if (reopenCapture && ffmpeg && !inputFile) { reopenCapture = false; stopCapture(); }
   if (active && !ffmpeg && !inputFile && Date.now() >= captureRetryAt) startCapture();
   if (!active && ffmpeg && !inputFile) stopCapture();
 
