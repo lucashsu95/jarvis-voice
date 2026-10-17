@@ -1,6 +1,15 @@
-# 給 AI 的設定指南：幫使用者填專有名詞並測試
+# 給 AI 的設定指南：全語音輸入
 
-你是使用者的 AI 助理（Claude Code、Codex、ChatGPT 或其他都可以）。使用者已經裝好並開著「全語音輸入」小程式，現在要你幫他把**他自己常講的專有名詞**寫進詞彙表，再實際測試，讓全語音輸入轉出來的字更準。照下面步驟做，做完回報結果。
+你是使用者的 AI 助理（Claude Code、Codex、ChatGPT 或其他都可以）。使用者已經裝好並開著「全語音輸入」小程式，要你幫他設定。分兩部分，照順序做，做完回報結果：
+
+- **第一部分：專有名詞**（一定要做）。把**他自己常講的專有名詞**寫進詞彙表，再實際測試，讓轉出來的字更準。
+- **第二部分：AI 整理、自動找輸入框、語音指令**（先問他要不要）。選 AI（OpenAI、DeepSeek、Claude）、放 key、打開開關、跑檢查。
+
+**key 的規則（兩部分都適用）：**
+- 不要叫使用者把 key 貼進對話；由他自己在終端機貼（下面有指令），你不經手、不印出來、不寫進 log。
+- key 檔放在 `~/.config/voice-dictation/`，權限 600；不要放進 `~/voice-dictation`（那是 git repo）。
+
+# 第一部分：專有名詞
 
 ## 要動的檔案
 
@@ -70,7 +79,7 @@ node ~/voice-dictation/bin/vocab-test.mjs --mic    # 使用者自己念
 - **`config.json` 的 `openai.languages`**：填使用者會講的語言，例如台灣中文夾英文就是 `["zh-tw", "en"]`。
 - **`config.json` 的 `replacements`**：測試後仍然固定錯的寫法才放這裡，例如 `{ "部屬": "部署" }`。
 
-只改上面這幾個欄位，`engine`、key 等其他設定不要動。
+這一部分只改上面這幾個欄位；AI 整理、key 的設定在第二部分。
 
 ### 4. 寫測試句
 
@@ -104,3 +113,98 @@ node ~/voice-dictation/bin/vocab-test.mjs --mic    # 使用者自己念
 - 加詞彙前後的整句全對數，以及平均字錯誤率。
 - 有沒有代造詞（沒講卻出現的詞）。
 - 還有哪些詞容易錯，建議他之後怎麼加。
+
+# 第二部分：AI 整理、自動找輸入框、語音指令
+
+### 8. 先問使用者要不要開，用白話講清楚
+
+| 功能 | 做什麼 | 會送出去的東西 |
+|---|---|---|
+| AI 整理 | 一段話講完（停約 2 秒），交給 AI 整理再寫進去：去贅字、「三點，不對，四點」只留四點、條列、依 app 調語氣、照詞彙表的寫法；選起一段字講「改正式一點」會改寫那段；講「換回原文」或點選單「換回原文」可以換回轉寫原稿 | 游標前後各 400 字、選取的字、app 名稱、視窗標題、網址，送到他選的 AI；密碼欄和密碼管理 app 不送 |
+| 自動找輸入框 | 游標不在輸入框時，自動挑視窗裡要寫的輸入框寫進去；分不出來就不寫 | 視窗裡輸入框的標籤和位置（送給決策器） |
+| 語音指令 | 游標不在輸入框時講「打開設定」「搜尋某某」，直接操作最前面的 app；刪除、送出、付款、下單、登出這類按鈕不會點，不確定就停 | 畫面上按鈕、連結、輸入框的名稱（送給決策器）；要先開 AI 整理 |
+
+都只對最前面的 app 動作，選單隨時可以關。費用：一天講 1 小時，AI 整理一個月不到 1 美元（轉寫本身另計）。
+
+### 9. 選 AI
+
+| 選項 | 速度 | key 從哪來 | 說明 |
+|---|---|---|---|
+| OpenAI | 約 1.1 秒 | 跟轉寫同一把（用 `openai` 引擎的人已經有了） | 不用另外申請，最省事 |
+| DeepSeek | 約 0.75 秒，最快 | https://platform.deepseek.com 申請 API key、儲值 | 台灣平日 9–12、14–18 點價格加倍，仍然很便宜 |
+| Claude | 約 0.85 秒 | https://console.anthropic.com 申請 API key | |
+
+使用者沒有偏好就建議：已經用 OpenAI 轉寫的選 OpenAI；想要最快的選 DeepSeek。
+
+### 10. 放 key（OpenAI 而且轉寫已經有 key 的，跳過這步）
+
+請使用者自己在終端機跑下面這行，把 key 貼進去（貼的時候畫面不會顯示）。把 `DEEPSEEK_API_KEY`、`deepseek.env` 換成他選的那家：DeepSeek 用 `DEEPSEEK_API_KEY`，Claude 用 `ANTHROPIC_API_KEY`，OpenAI 用 `OPENAI_API_KEY`。
+
+```bash
+mkdir -p ~/.config/voice-dictation && read -s "KEY?貼上 key 後按 Enter：" && printf 'DEEPSEEK_API_KEY=%s\n' "$KEY" > ~/.config/voice-dictation/deepseek.env && chmod 600 ~/.config/voice-dictation/deepseek.env && unset KEY && echo 已存好
+```
+
+key 已經放在密碼管理或雲端的，改用指令拿，key 不落地（設定檔的 `ai.keyCommands`）：
+
+| 放在哪 | 指令例子 |
+|---|---|
+| 1Password（要裝 `op`） | `op read "op://Private/DeepSeek/credential"` |
+| macOS 鑰匙圈 | `security find-generic-password -s deepseek-api -w` |
+| AWS SSM | `aws ssm get-parameter --name /my/DEEPSEEK_API_KEY --with-decryption --query Parameter.Value --output text` |
+
+不要用環境變數：小程式是從 Finder 或開機自動啟動的，讀不到 `.zshrc` 裡設的變數。
+
+### 11. 寫進設定檔
+
+在 `~/.voice-dictation/config.json` **加上**下面的欄位，原本的欄位（`engine`、`openai` 等）都留著。照使用者的選擇改 `provider` 和 key 的位置；自動找輸入框、語音指令他不要的就給 `false`。
+
+```json
+{
+  "ai": {
+    "enabled": true,
+    "provider": "deepseek",
+    "keyFiles": { "deepseek": "~/.config/voice-dictation/deepseek.env" }
+  },
+  "autoFocus": true,
+  "commands": true
+}
+```
+
+- 用 `keyCommands` 的話把 `keyFiles` 換成 `"keyCommands": { "deepseek": "<上表的指令>" }`。
+- 選 OpenAI 而且轉寫已經有 key：只要 `"ai": { "enabled": true, "provider": "openai" }`。
+- 存檔後幾秒內自動套用。之後要換家、開關功能，直接用選單「AI 整理」「自動找輸入框」「語音指令」。
+- 想調語氣可以加 `ai.styles`，例如 `{ "com.tinyspeck.slackmacgap": "口語、簡短" }`（key 是 app 的 bundle id 或網站網域）；沒寫會用內建的聊天、email、給 AI 的指令、文件四種語氣。
+- **Jev（選用）**：自動找輸入框和語音指令的決策器，一步約 0.2 秒。TypeSafe（https://typesafe.ai）的 key，可能暫停註冊中。有的話照第 10 步存成 `~/.config/voice-dictation/jev.env`（變數名 `TYPESAFE_API_KEY`），設定檔加 `"jev": { "apiKeyFile": "~/.config/voice-dictation/jev.env" }`。沒有也能用，會改問上面選的 AI，一步約 1 秒。
+
+### 12. 檢查
+
+```bash
+node ~/voice-dictation/bin/ai-check.mjs
+```
+
+它會照設定檔實際打一次 AI 和決策器（不印 key）。正常的樣子：
+
+```
+AI 整理：開，用 DeepSeek（deepseek-flash）
+整理測試（697 ms）：「嗯那個我們明天三點開會，不對，四點開會，然後記得帶那個筆電」→「我們明天四點開會，記得帶筆電。」
+自動找輸入框：開；語音指令：開
+第三層決策（Jev，202 ms）：「進到台積電的個股頁」判成 指令
+都正常。
+```
+
+有問題它會說缺什麼（例如沒有 key、key 錯了 HTTP 401），照著改設定檔再跑一次。
+
+然後請使用者實際試：
+- 在任何輸入框講一段話，停約 2 秒，看寫進去的字有沒有整理過。
+- 點掉輸入框（例如點網頁空白處）再講一段話，看會不會寫進對的框。
+- 開了語音指令的話，游標不在輸入框時講「打開設定」。
+
+選單第一行會寫「講完一段，DeepSeek 整理後寫進輸入框」；「AI 整理」後面出現「（沒有 key）」就是 key 沒讀到。細節記錄在 `~/.voice-dictation/listen.log`。
+
+### 13. 回報
+
+告訴使用者：
+- 用哪家 AI、key 放在哪（只講位置，不講 key）。
+- `ai-check.mjs` 的結果，以及他實際試的結果。
+- 自動找輸入框、語音指令有沒有開，怎麼從選單關掉。
+- 會送出去的東西（第 8 步的表），以及大概的費用。

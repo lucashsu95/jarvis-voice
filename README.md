@@ -2,13 +2,15 @@
 
 <img src="design/icon-big.png" width="96" alt="全語音輸入的選單列圖示：循環箭頭包住三條聲波">
 
-開著就自動收音：你講完一句（停頓約 0.85 秒），那句就貼進游標所在的輸入框。不管是 Claude、ChatGPT、瀏覽器、LINE、備忘錄，在哪裡講，字就進哪裡。只貼不送出，要送自己按 Enter。
+macOS 選單列小程式。開著就自動收音，你講的話直接寫進正在用的 app：Claude、ChatGPT、瀏覽器、LINE、備忘錄都可以。只寫不送出，要送自己按 Enter。
 
-分三層，後兩層從選單打開：
+分三層。第一層裝好就有，第二、三層從選單打開，每一層都是在前一層上面多做一點：
 
-1. **全語音輸入**：講完一句就貼。
-2. **AI 整理**（像 [Typeless](https://www.typeless.com)）：一段話講完，帶上游標前後的字、app、視窗、網址交給 AI，整理成你本來想打的字再寫進去（去贅字、改口只留結果、條列、依 app 調語氣、專有名詞）。AI 可以選 OpenAI、DeepSeek、Claude。
-3. **不用先點輸入框**：游標不在輸入框時，自動挑對的輸入框寫進去；講「進到台積電的個股頁」這類指令，直接操作 app。決策用 [Jev](https://typesafe.ai)（沒有 Jev 就改問 AI）。
+| 層 | 什麼時候寫 | 寫什麼 | 寫到哪 |
+|---|---|---|---|
+| 1. 全語音輸入（裝好就有） | 講完一句（停約 0.85 秒） | 轉寫出來的原話 | 游標所在的輸入框；游標不在輸入框就不寫 |
+| 2. AI 整理（像 [Typeless](https://www.typeless.com)） | 講完一段（停約 2 秒） | AI 整理過的字：去贅字、改口只留結果、條列、依 app 調語氣、照你的專有名詞。AI 會參考游標前後的字、app、視窗、網址，可以選 OpenAI、DeepSeek、Claude | 同第 1 層 |
+| 3. 自動找輸入框、語音指令 | 同第 2 層 | 同第 2 層 | 游標不在輸入框時，改成挑出視窗裡該寫的輸入框寫進去。講的是「進到台積電的個股頁」這類指令，就不寫字，直接操作最前面的 app。由 [Jev](https://typesafe.ai) 決定（沒有 Jev 就改問 AI） |
 
 架構與實測數字見 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。
 
@@ -16,26 +18,30 @@
 
 **第一步：裝好、打開小程式**
 
+需要 macOS、Node.js 22 以上、ffmpeg（`brew install node ffmpeg`）。
+
 ```bash
 git clone https://github.com/urusaqqrun/voice-dictation.git ~/voice-dictation
 cd ~/voice-dictation
 ./install.sh openai   # 用 OpenAI 轉寫（最準）；不想花錢就用 ./install.sh local
 ```
 
-裝完選單列會出現麥克風圖示。第一次用要給兩個權限，都只要一次：
+裝完選單列會出現「全語音輸入」的圖示（循環箭頭包住三條聲波）。第一次用要給兩個權限，都只要一次：
 
 1. **麥克風**：跳出「全語音輸入想要取用麥克風」時按允許。
 2. **輔助使用**（貼上要用）：第一次講話時會跳出詢問，到「系統設定 → 隱私權與安全性 → 輔助使用」打開「全語音輸入」。
 
-用 `openai` 要給 key：在 `~/.voice-dictation/config.json` 的 `openai` 裡加上 `"apiKey": "sk-..."`，或用 `"apiKeyFile"` 指向放 key 的檔案。
+用 `openai` 要給 OpenAI 的 key：第二步請 AI 幫你放（key 由你自己在終端機貼，AI 不經手），或自己在 `~/.voice-dictation/config.json` 的 `openai` 裡加 `"apiKeyFile": "放 key 的檔案"`。
 
-**第二步：請你的 AI 填專有名詞並測試**
+**第二步：請你的 AI 幫你設定**
 
-每個人常講的產品名、英文縮寫、公司內部用語都不一樣，這些詞最容易被聽錯。打開你常用的 AI（Claude Code、Codex、ChatGPT 都可以），把這句話貼給它：
+每個人常講的產品名、英文縮寫、公司內部用語都不一樣，這些詞最容易被聽錯；AI 整理、自動找輸入框、語音指令也要選 AI、放 key 才能開。打開你常用的 AI（Claude Code、Codex、ChatGPT 都可以），把這句話貼給它：
 
-> 請照 ~/voice-dictation/AI_SETUP.md 幫我設定全語音輸入的專有名詞，並跑測試給我看結果。
+> 請照 ~/voice-dictation/AI_SETUP.md 幫我設定全語音輸入：填專有名詞並跑測試，也問我要不要開 AI 整理、自動找輸入框、語音指令，要的話幫我設定好並檢查。
 
-AI 會從你打過的字裡找出常講的詞，寫進 `~/.voice-dictation/vocabulary.txt`，然後跑測試，比較加詞彙前後的準度。實測 4 句中英夾雜的開發用語：不加詞彙整句全對 1/4，加了 4/4（「平行沙河」變回「平行沙盒」、「香芹卡」變回「鑲嵌卡」）。
+AI 會：
+- 從你打過的字裡找出常講的詞，寫進 `~/.voice-dictation/vocabulary.txt`，跑測試比較加詞彙前後的準度。實測 4 句中英夾雜的開發用語：不加詞彙整句全對 1/4，加了 4/4（「平行沙河」變回「平行沙盒」、「香芹卡」變回「鑲嵌卡」）。
+- 跟你說明 AI 整理會送出什麼、要多少錢，問你要用 OpenAI、DeepSeek 還是 Claude；請你自己把 key 貼進一個只有你讀得到的檔案；把開關寫進設定檔；跑 `node ~/voice-dictation/bin/ai-check.mjs` 確認 AI 和決策器都通。
 
 ## 平常怎麼用
 
@@ -43,11 +49,11 @@ AI 會從你打過的字裡找出常講的詞，寫進 `~/.voice-dictation/vocab
   - 三條聲波：收音中。
   - 聲波變高：聽到你講話。
   - 打勾：剛貼好。
-  - 叉叉：游標不在輸入框，這句沒貼。
+  - 叉叉：沒寫進去（游標不在輸入框，也沒找到該寫的輸入框），或語音指令沒做完。
   - 聲波變淡：待命（最前面的 app 不收音）。
   - ‖：暫停。
   - 驚嘆號：出錯，點開選單看原因。
-- **只貼進輸入框**：游標不在輸入框時（例如在看網頁本身、在 Finder 選檔案）不會貼，圖示會短暫變成叉叉。這時可以點選單的「複製上一句」把那句拿回來。
+- **游標不在輸入框時**（例如在看網頁本身、在 Finder 選檔案）：沒開「自動找輸入框」就不寫；開了會挑視窗裡該寫的輸入框，分不出要寫哪個也不寫。沒寫的時候圖示會短暫變成叉叉，可以點選單的「複製上一句」把那段拿回來。
 - **開會時不收音**：Zoom、Teams、FaceTime、Webex 在最前面時不收音。旁邊有人講話、在放影片，就按選單的「暫停收音」。
 - **選單**：暫停／繼續、複製上一句、換回原文、AI 整理（關／OpenAI／DeepSeek／Claude）、自動找輸入框、語音指令、編輯專有名詞、編輯設定檔、說明、結束。
 
@@ -146,7 +152,8 @@ AI 會從你打過的字裡找出常講的詞，寫進 `~/.voice-dictation/vocab
 ## 疑難排解
 
 - **選單列沒有圖示**：打開 `~/Applications/全語音輸入.app`。macOS 26 可以到「系統設定 → 選單列」確認它被允許顯示。
-- **圖示是三角形**：點開選單看第一行寫的原因。
+- **圖示是驚嘆號**：點開選單看第一行寫的原因。
+- **AI 整理沒作用、選單寫「（沒有 key）」**：跑 `node ~/voice-dictation/bin/ai-check.mjs`，它會說缺什麼。
 - **字沒貼進去**：先確認游標在輸入框裡，再確認「輔助使用」裡有打開「全語音輸入」。
 - **看詳細記錄**：`~/.voice-dictation/listen.log`。
 - **重新安裝或更新**：`git pull && ./install.sh`。外殼 `app/main.js` 或打包設定沒變就不會重包，權限不用重給；有變的話系統會再問一次麥克風，輔助使用要到設定裡把「全語音輸入」關掉再打開。
@@ -158,7 +165,7 @@ AI 會從你打過的字裡找出常講的詞，寫進 `~/.voice-dictation/vocab
 - `bin/listen.mjs`：常駐程式。它看哪個 app 在最前面，用 ffmpeg 收音、在本機切句，交給轉寫引擎；AI 整理開著就分段交給 AI，再寫進輸入框或執行指令。
 - `bin/engines/`：`batch.mjs`（OpenAI 一般轉寫）、`realtime.mjs`（即時轉寫，OpenAI 或平行沙盒）、`local.mjs`（sherpa-onnx 跑 SenseVoice）。
 - `bin/ax-agent.js`：常駐的「輔助使用」小幫手（JXA）。讀上下文、找輸入框、對焦、貼上（暫存剪貼簿 → Cmd+V → 還原，只送給最前面的 app）、選回剛貼的字、列出畫面上的按鈕並操作。
-- `bin/editor.mjs`：AI 整理。`bin/decide.mjs`：第三層的決策（Jev）。`bin/commander.mjs`：語音指令。`bin/targeter.mjs`：挑輸入框的規則。`bin/learn.mjs`：自動學詞。
+- `bin/editor.mjs`：AI 整理。`bin/ai-check.mjs`：檢查 AI 整理和決策器設定好了沒。`bin/decide.mjs`：第三層的決策（Jev）。`bin/commander.mjs`：語音指令。`bin/targeter.mjs`：挑輸入框的規則。`bin/learn.mjs`：自動學詞。
 - `bin/vocab-test.mjs`：專有名詞測試（見 [AI_SETUP.md](AI_SETUP.md)）。
 
 ## 開發

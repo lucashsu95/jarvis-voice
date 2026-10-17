@@ -364,3 +364,33 @@ test('指令模式的一步：選項是畫面上的元件，帶位置和角色',
   assert.deepEqual(Object.keys(q.action.criteria), ['click', 'fill', 'enter', 'done', 'stuck']);
   assert.equal(q.target.criteria.e0, '連結「台積電 2330」（下左）');
 });
+
+test('設定檢查 ai-check：照設定檔實際打 AI 和決策器；沒有 key 說缺什麼、結束碼 1', { timeout: 20_000 }, async () => {
+  const server = await fakeJson((call) => {
+    if (call.body?.messages?.[0]?.content?.includes('決策器')) return chatReply({ answers: { intent: { choice: 'command', confidence: 0.9 } } });
+    return chatReply({ mode: 'insert', text: '我們明天四點開會，記得帶筆電。', goal: '', app: '' });
+  });
+  const run = async (config) => {
+    const dir = mkdtempSync(join(tmpdir(), 'voice-dictation-check-'));
+    writeFileSync(join(dir, 'config.json'), JSON.stringify(config));
+    const child = spawn(process.execPath, [join(import.meta.dirname, '..', 'bin', 'ai-check.mjs')], {
+      env: { ...process.env, VOICE_DICTATION_STATE_DIR: dir, VOICE_DICTATION_OPENAI_CHAT_URL: `${server.url}/chat`, OPENAI_API_KEY: '', DEEPSEEK_API_KEY: '', TYPESAFE_API_KEY: '' },
+    });
+    let out = '';
+    child.stdout.on('data', (d) => { out += d; });
+    const code = await new Promise((r) => child.on('close', r));
+    return { out, code };
+  };
+  try {
+    const good = await run({ engine: 'openai', openai: { apiKey: 'sk-test' }, ai: { enabled: true, provider: 'openai' }, autoFocus: true, commands: true });
+    assert.equal(good.code, 0, good.out);
+    assert.match(good.out, /整理測試（\d+ ms）：.*→「我們明天四點開會，記得帶筆電。」/);
+    assert.match(good.out, /第三層決策（AI，\d+ ms）：「進到台積電的個股頁」判成 指令/);
+    assert.doesNotMatch(good.out, /sk-test/);
+    const missing = await run({ ai: { enabled: true, provider: 'deepseek' } });
+    assert.equal(missing.code, 1);
+    assert.match(missing.out, /沒有 DeepSeek 的 key/);
+  } finally {
+    server.close();
+  }
+});
