@@ -54,6 +54,23 @@ function uiSnapshot() {
   return statusItem ? { title: ObjC.unwrap(statusItem.button.title), line: ObjC.unwrap(statusLine.title) } : null;
 }
 
+// 診斷：選單列圖示實際的位置寫進 menubar.json（瀏海機型圖示太多時會被擠到瀏海後面看不到）
+function dumpFrame() {
+  try {
+    const win = statusItem.button.window;
+    const f = win.frame;
+    const screen = $.NSScreen.mainScreen;
+    const notch = screen.auxiliaryTopLeftArea;
+    const info = {
+      x: f.origin.x, y: f.origin.y, width: f.size.width, height: f.size.height,
+      visible: statusItem.isVisible, onScreen: win.isVisible,
+      screenWidth: screen.frame.size.width, notchStart: notch ? notch.size.width : null,
+      notchEnd: screen.auxiliaryTopRightArea ? screen.frame.size.width - screen.auxiliaryTopRightArea.size.width : null,
+    };
+    $(JSON.stringify(info)).writeToFileAtomicallyEncodingError(statePath('menubar.json'), true, $.NSUTF8StringEncoding, null);
+  } catch (err) { /* 拿不到就算了 */ }
+}
+
 function refresh() {
   if (!statusItem) return;
   const [symbol, tint, text] = look();
@@ -201,6 +218,7 @@ ObjC.registerSubclass({
     'stdout:': { types: ['void', ['id']], implementation(note) { onStdout(note); } },
     'ended:': { types: ['void', ['id']], implementation() { onEnded(); } },
     'restart:': { types: ['void', ['id']], implementation() { startListener(); } },
+    'dumpFrame:': { types: ['void', ['id']], implementation() { dumpFrame(); } },
     'flashEnd:': { types: ['void', ['id']], implementation() { if (flash && Date.now() >= flash.until) { flash = null; refresh(); } } },
   },
 });
@@ -214,7 +232,13 @@ function menuItem(title, action) {
 function startUI() {
   fm().createDirectoryAtPathWithIntermediateDirectoriesAttributesError(BUILD.state, true, $(), null);
   controller = $.VoiceDictationController.alloc.init;
+  // 新的選單列圖示預設排在最左邊，瀏海機型圖示一多就被擠到瀏海後面看不到：
+  // 第一次先放在離螢幕右邊 260 點的位置；之後使用者按 Cmd 拖過的位置系統會自己記住
+  const positionKey = 'NSStatusItem Preferred Position VoiceDictation';
+  const defaults = $.NSUserDefaults.standardUserDefaults;
+  if (defaults.objectForKey(positionKey).isNil()) defaults.setDoubleForKey(260, positionKey);
   statusItem = $.NSStatusBar.systemStatusBar.statusItemWithLength(-1); // NSVariableStatusItemLength
+  statusItem.setAutosaveName('VoiceDictation');
   const menu = $.NSMenu.alloc.init;
   menu.setAutoenablesItems(false);
   statusLine = menuItem('啟動中…', null);
@@ -232,5 +256,6 @@ function startUI() {
   menu.addItem(menuItem('結束語音輸入', 'quitApp:'));
   statusItem.setMenu(menu);
   refresh();
+  $.NSTimer.scheduledTimerWithTimeIntervalTargetSelectorUserInfoRepeats(2, controller, 'dumpFrame:', $(), false);
   startListener();
 }
