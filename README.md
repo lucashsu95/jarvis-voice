@@ -1,4 +1,4 @@
-# 全語音輸入（macOS）
+# Jarvis Voice：全語音輸入（macOS）
 
 <img src="design/icon-big.png" width="96" alt="全語音輸入的選單列圖示：循環箭頭包住三條聲波">
 
@@ -21,8 +21,8 @@ macOS 選單列小程式。開著就自動收音，你講的話直接寫進正�
 需要 macOS、Node.js 22 以上、ffmpeg（`brew install node ffmpeg`）。
 
 ```bash
-git clone https://github.com/urusaqqrun/voice-dictation.git ~/voice-dictation
-cd ~/voice-dictation
+git clone https://github.com/urusaqqrun/jarvis-voice.git ~/jarvis-voice
+cd ~/jarvis-voice
 ./install.sh openai   # 用 OpenAI 轉寫（最準）；不想花錢就用 ./install.sh local
 ```
 
@@ -37,11 +37,11 @@ cd ~/voice-dictation
 
 每個人常講的產品名、英文縮寫、公司內部用語都不一樣，這些詞最容易被聽錯；AI 整理、自動找輸入框、語音指令也要選 AI、放 key 才能開。打開你常用的 AI（Claude Code、Codex、ChatGPT 都可以），把這句話貼給它：
 
-> 請照 ~/voice-dictation/AI_SETUP.md 幫我設定全語音輸入：填專有名詞並跑測試，也問我要不要開 AI 整理、自動找輸入框、語音指令，要的話幫我設定好並檢查。
+> 請照 ~/jarvis-voice/AI_SETUP.md 幫我設定全語音輸入：填專有名詞並跑測試，也問我要不要開 AI 整理、自動找輸入框、語音指令，要的話幫我設定好並檢查。
 
 AI 會：
 - 從你打過的字裡找出常講的詞，寫進 `~/.voice-dictation/vocabulary.txt`，跑測試比較加詞彙前後的準度。實測 4 句中英夾雜的開發用語：不加詞彙整句全對 1/4，加了 4/4（「平行沙河」變回「平行沙盒」、「香芹卡」變回「鑲嵌卡」）。
-- 跟你說明 AI 整理會送出什麼、要多少錢，問你要用 OpenAI、DeepSeek 還是 Claude；請你自己把 key 貼進一個只有你讀得到的檔案；把開關寫進設定檔；跑 `node ~/voice-dictation/bin/ai-check.mjs` 確認 AI 和決策器都通。
+- 跟你說明 AI 整理會送出什麼、要多少錢，問你要用 OpenAI、DeepSeek 還是 Claude；請你自己把 key 貼進一個只有你讀得到的檔案；把開關寫進設定檔；跑 `node ~/jarvis-voice/bin/ai-check.mjs` 確認 AI 和決策器都通。
 
 ## 平常怎麼用
 
@@ -151,7 +151,7 @@ AI 會：
 
 - **選單列沒有圖示**：打開 `~/Applications/全語音輸入.app`。macOS 26 可以到「系統設定 → 選單列」確認它被允許顯示。
 - **圖示是驚嘆號**：點開選單看第一行寫的原因。
-- **AI 整理沒作用、選單寫「（沒有 key）」**：跑 `node ~/voice-dictation/bin/ai-check.mjs`，它會說缺什麼。
+- **AI 整理沒作用、選單寫「（沒有 key）」**：跑 `node ~/jarvis-voice/bin/ai-check.mjs`，它會說缺什麼。
 - **字沒貼進去**：先確認游標在輸入框裡，再確認「輔助使用」裡有打開「全語音輸入」。
 - **看詳細記錄**：`~/.voice-dictation/listen.log`。
 - **重新安裝或更新**：`git pull && ./install.sh`。外殼 `app/main.js` 或打包設定沒變就不會重包，權限不用重給；有變的話系統會再問一次麥克風，輔助使用要到設定裡把「全語音輸入」關掉再打開。

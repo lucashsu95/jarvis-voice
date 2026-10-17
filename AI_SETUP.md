@@ -7,7 +7,7 @@
 
 **key 的規則（兩部分都適用）：**
 - 不要叫使用者把 key 貼進對話；由他自己在終端機貼（下面有指令），你不經手、不印出來、不寫進 log。
-- key 檔放在 `~/.config/voice-dictation/`，權限 600；不要放進 `~/voice-dictation`（那是 git repo）。
+- key 檔放在 `~/.config/jarvis-voice/`，權限 600；不要放進 `~/jarvis-voice`（那是 git repo）。
 
 # 第一部分：專有名詞
 
@@ -21,11 +21,11 @@
 | `config.json` | 設定檔；這次要動的是 `openai.prompt`、`openai.languages`、`replacements` |
 | `test-sentences.txt` | 測試句，一行一句，`#` 後面是註解 |
 
-測試指令在小程式的程式資料夾裡，預設是 `~/voice-dictation`：
+測試指令在小程式的程式資料夾裡，預設是 `~/jarvis-voice`：
 
 ```bash
-node ~/voice-dictation/bin/vocab-test.mjs          # 用 macOS 合成語音念測試句
-node ~/voice-dictation/bin/vocab-test.mjs --mic    # 使用者自己念
+node ~/jarvis-voice/bin/vocab-test.mjs          # 用 macOS 合成語音念測試句
+node ~/jarvis-voice/bin/vocab-test.mjs --mic    # 使用者自己念
 ```
 
 ## 步驟
@@ -90,7 +90,7 @@ node ~/voice-dictation/bin/vocab-test.mjs --mic    # 使用者自己念
 
 ### 5. 測試、調整、再測
 
-跑 `node ~/voice-dictation/bin/vocab-test.mjs`。它會把每一句「不加詞彙」和「加詞彙」各轉一次，跟原文比對，另外再跑一句不含專有名詞的一般句和一段雜音，檢查會不會冒出沒講的詞。
+跑 `node ~/jarvis-voice/bin/vocab-test.mjs`。它會把每一句「不加詞彙」和「加詞彙」各轉一次，跟原文比對，另外再跑一句不含專有名詞的一般句和一段雜音，檢查會不會冒出沒講的詞。
 
 依結果調整：
 
@@ -104,7 +104,7 @@ node ~/voice-dictation/bin/vocab-test.mjs --mic    # 使用者自己念
 
 ### 6. 請使用者親自念一次
 
-請使用者在終端機跑 `node ~/voice-dictation/bin/vocab-test.mjs --mic`。指令每次印出一句，使用者念完停一下，就會換下一句。用真人聲音的結果才是準的；有錯就照第 5 步再調。
+請使用者在終端機跑 `node ~/jarvis-voice/bin/vocab-test.mjs --mic`。指令每次印出一句，使用者念完停一下，就會換下一句。用真人聲音的結果才是準的；有錯就照第 5 步再調。
 
 ### 7. 回報
 
@@ -141,7 +141,7 @@ node ~/voice-dictation/bin/vocab-test.mjs --mic    # 使用者自己念
 請使用者自己在終端機跑下面這行，把 key 貼進去（貼的時候畫面不會顯示）。把 `DEEPSEEK_API_KEY`、`deepseek.env` 換成他選的那家：DeepSeek 用 `DEEPSEEK_API_KEY`，Claude 用 `ANTHROPIC_API_KEY`，OpenAI 用 `OPENAI_API_KEY`。
 
 ```bash
-mkdir -p ~/.config/voice-dictation && read -s "KEY?貼上 key 後按 Enter：" && printf 'DEEPSEEK_API_KEY=%s\n' "$KEY" > ~/.config/voice-dictation/deepseek.env && chmod 600 ~/.config/voice-dictation/deepseek.env && unset KEY && echo 已存好
+mkdir -p ~/.config/jarvis-voice && read -s "KEY?貼上 key 後按 Enter：" && printf 'DEEPSEEK_API_KEY=%s\n' "$KEY" > ~/.config/jarvis-voice/deepseek.env && chmod 600 ~/.config/jarvis-voice/deepseek.env && unset KEY && echo 已存好
 ```
 
 key 已經放在密碼管理或雲端的，改用指令拿，key 不落地（設定檔的 `ai.keyCommands`）：
@@ -163,7 +163,7 @@ key 已經放在密碼管理或雲端的，改用指令拿，key 不落地（設
   "ai": {
     "enabled": true,
     "provider": "deepseek",
-    "keyFiles": { "deepseek": "~/.config/voice-dictation/deepseek.env" }
+    "keyFiles": { "deepseek": "~/.config/jarvis-voice/deepseek.env" }
   },
   "autoFocus": true,
   "commands": true
@@ -174,12 +174,12 @@ key 已經放在密碼管理或雲端的，改用指令拿，key 不落地（設
 - 選 OpenAI 而且轉寫已經有 key：只要 `"ai": { "enabled": true, "provider": "openai" }`。
 - 存檔後幾秒內自動套用。之後要換家、開關功能，直接用選單「AI 整理」「自動找輸入框」「語音指令」。
 - 想調語氣可以加 `ai.styles`，例如 `{ "com.tinyspeck.slackmacgap": "口語、簡短" }`（key 是 app 的 bundle id 或網站網域）；沒寫會用內建的聊天、email、給 AI 的指令、文件四種語氣。
-- **Jev（選用）**：自動找輸入框和語音指令的決策器，一步約 0.2 秒。TypeSafe（https://typesafe.ai）的 key，可能暫停註冊中。有的話照第 10 步存成 `~/.config/voice-dictation/jev.env`（變數名 `TYPESAFE_API_KEY`），設定檔加 `"jev": { "apiKeyFile": "~/.config/voice-dictation/jev.env" }`。沒有也能用，會改問上面選的 AI，一步約 1 秒。
+- **Jev（選用）**：自動找輸入框和語音指令的決策器，一步約 0.2 秒。TypeSafe（https://typesafe.ai）的 key，可能暫停註冊中。有的話照第 10 步存成 `~/.config/jarvis-voice/jev.env`（變數名 `TYPESAFE_API_KEY`），設定檔加 `"jev": { "apiKeyFile": "~/.config/jarvis-voice/jev.env" }`。沒有也能用，會改問上面選的 AI，一步約 1 秒。
 
 ### 12. 檢查
 
 ```bash
-node ~/voice-dictation/bin/ai-check.mjs
+node ~/jarvis-voice/bin/ai-check.mjs
 ```
 
 它會照設定檔實際打一次 AI 和決策器（不印 key）。正常的樣子：

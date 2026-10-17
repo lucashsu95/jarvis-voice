@@ -11,7 +11,7 @@
 const LISTEN = `${BUILD.repo}/bin/listen.mjs`;
 const NODE_DIR = BUILD.node.replace(/\/[^/]*$/, '');
 const ENGINE_NAMES = { local: '本機', openai: 'OpenAI', parallelsandbox: '平行沙盒' };
-const GUIDE_URL = 'https://github.com/urusaqqrun/voice-dictation#readme';
+const GUIDE_URL = 'https://github.com/urusaqqrun/jarvis-voice#readme';
 const AI_NAMES = { openai: 'OpenAI', deepseek: 'DeepSeek', claude: 'Claude' };
 
 let statusItem = null;

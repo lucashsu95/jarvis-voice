@@ -1,5 +1,5 @@
 {
-  "name": "voice-dictation",
+  "name": "jarvis-voice",
   "version": "1.0.0",
   "private": true,
   "description": "全語音輸入（macOS）：開著就自動收音，講完一句就貼進游標所在的輸入框（任何 app）",

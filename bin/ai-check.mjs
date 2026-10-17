@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // 檢查 AI 整理和第三層決策設定好了沒：照設定檔實際打一次，印出用哪家、多快、整理結果。不印 key。
-// 用法：node ~/voice-dictation/bin/ai-check.mjs   （有問題時結束碼是 1）
+// 用法：node ~/jarvis-voice/bin/ai-check.mjs   （有問題時結束碼是 1）
 
 import { aiKey, loadConfig } from './config.mjs';
 import { createDecider, intentQuestion } from './decide.mjs';
