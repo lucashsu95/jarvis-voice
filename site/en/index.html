@@ -1,0 +1,221 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>JarvisVoice: hands-free voice typing and app control</title>
+<meta name="description" content="A macOS menu bar app that listens on its own and types what you say into the app you're using; say a command and it operates the app for you.">
+<link rel="icon" href="../favicon.png">
+<link rel="alternate" hreflang="zh-Hant" href="https://jarvis-voice.com/">
+<link rel="alternate" hreflang="en" href="https://jarvis-voice.com/en/">
+<link rel="alternate" hreflang="x-default" href="https://jarvis-voice.com/en/">
+<style>
+  :root {
+    --bg: #fbfaf8;
+    --surface: #ffffff;
+    --text: #18181b;
+    --muted: #5b5b63;
+    --line: #e6e4df;
+    --accent: #2f54d9;
+    --accent-ink: #ffffff;
+    --code-bg: #f2f1ed;
+    --icon-filter: none;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #111214;
+      --surface: #1a1b1e;
+      --text: #ececee;
+      --muted: #a3a3ab;
+      --line: #2c2d31;
+      --accent: #8ea4ff;
+      --accent-ink: #111214;
+      --code-bg: #202125;
+      --icon-filter: invert(1);
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 17px/1.7 -apple-system, BlinkMacSystemFont, "PingFang TC", "Noto Sans TC", "Microsoft JhengHei", sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  main { max-width: 960px; margin: 0 auto; padding: 0 16px; }
+  a { color: var(--accent); }
+  h1, h2, h3 { line-height: 1.3; margin: 0; }
+  h2 { font-size: 26px; margin-bottom: 20px; }
+  h3 { font-size: 19px; margin-bottom: 8px; }
+  p { margin: 0 0 12px; }
+  section { padding: 56px 0; border-top: 1px solid var(--line); }
+
+  .hero { padding: 72px 0 56px; display: grid; gap: 20px; justify-items: start; position: relative; }
+  .lang { position: absolute; top: 24px; right: 0; font-size: 15px; color: var(--muted); text-decoration: none; border: 1px solid var(--line); border-radius: 8px; padding: 4px 10px; }
+  .hero img { width: 88px; height: 88px; filter: var(--icon-filter); }
+  .hero h1 { font-size: clamp(34px, 6vw, 52px); letter-spacing: -0.01em; }
+  .hero h1 span { display: block; font-size: 0.5em; font-weight: 600; color: var(--muted); margin-top: 6px; letter-spacing: 0; }
+  .hero .lead { font-size: 20px; color: var(--muted); max-width: 640px; }
+  .actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 4px; }
+  .button {
+    display: inline-block; padding: 11px 20px; border-radius: 10px; font-weight: 600; text-decoration: none;
+    background: var(--accent); color: var(--accent-ink);
+  }
+  .button.secondary { background: transparent; color: var(--text); border: 1px solid var(--line); }
+
+  .layers { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; }
+  .card { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 22px; }
+  .card .tag { font-size: 14px; font-weight: 600; color: var(--accent); margin-bottom: 6px; }
+  .card p { color: var(--muted); font-size: 16px; margin: 0; }
+
+  .example { display: grid; gap: 16px; }
+  .said, .wrote { padding: 16px 18px; border-radius: 12px; }
+  .said { background: var(--code-bg); }
+  .wrote { background: var(--surface); border: 1px solid var(--line); }
+  .label { font-size: 14px; font-weight: 600; color: var(--muted); margin-bottom: 4px; }
+  .steps { margin: 0; padding-left: 22px; color: var(--muted); }
+  .steps li { margin: 4px 0; }
+  .note { font-size: 15px; color: var(--muted); }
+
+  .install { display: grid; gap: 28px; }
+  /* grid 裡的東西預設不會比內容窄：長的程式碼行會把整頁撐寬，手機上要讓它自己捲 */
+  .install > *, .example > *, .layers > * { min-width: 0; }
+  pre {
+    margin: 10px 0 0; padding: 16px 18px; border-radius: 12px; background: var(--code-bg);
+    overflow-x: auto; font: 15px/1.6 ui-monospace, "SF Mono", Menlo, monospace; white-space: pre;
+  }
+  blockquote { margin: 10px 0 0; padding: 14px 18px; border-left: 3px solid var(--accent); background: var(--surface); border-radius: 0 12px 12px 0; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 16px; }
+  th, td { text-align: left; padding: 12px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { font-weight: 600; color: var(--muted); font-size: 14px; }
+  .table-wrap { overflow-x: auto; }
+
+  ul.plain { margin: 0; padding-left: 22px; }
+  ul.plain li { margin: 6px 0; }
+
+  footer { padding: 32px 0 56px; border-top: 1px solid var(--line); color: var(--muted); font-size: 15px; }
+
+  @media (max-width: 600px) {
+    body { font-size: 16px; }
+    .hero { padding: 48px 0 40px; }
+    .hero img { width: 72px; height: 72px; }
+    .hero .lead { font-size: 18px; }
+    section { padding: 44px 0; }
+    h2 { font-size: 23px; }
+  }
+</style>
+</head>
+<body>
+<main>
+  <header class="hero">
+    <a class="lang" href="../" onclick="try { localStorage.setItem('lang', 'zh'); } catch (e) {}">中文</a>
+    <img src="../icon.png" alt="JarvisVoice icon: a circular arrow around three sound bars">
+    <h1>JarvisVoice<span>Hands-free voice typing and app control</span></h1>
+    <p class="lead">A macOS menu bar app. It listens on its own and types what you say into the app you're using; say a command and it operates the app for you. Works with Claude, ChatGPT, your browser, LINE, Notes and more. It only types, it never sends; press Enter yourself.</p>
+    <div class="actions">
+      <a class="button" href="https://github.com/urusaqqrun/jarvis-voice">Install from GitHub</a>
+      <a class="button secondary" href="https://github.com/urusaqqrun/jarvis-voice/blob/main/docs/ARCHITECTURE.md">Architecture and numbers</a>
+    </div>
+  </header>
+
+  <section>
+    <h2>Three layers, all on by default</h2>
+    <p class="note">Each layer builds on the one before; you can turn layers 2 and 3 off from the menu.</p>
+    <div class="layers">
+      <div class="card">
+        <div class="tag">Layer 1</div>
+        <h3>Voice typing</h3>
+        <p>Finish a sentence (a pause of about 0.85 s) and the transcript is pasted where your cursor is. No keys to press.</p>
+      </div>
+      <div class="card">
+        <div class="tag">Layer 2</div>
+        <h3>AI cleanup</h3>
+        <p>Finish a passage and the AI, looking at the text around your cursor, what's on screen, the app and the URL, turns it into what you meant to type: filler removed, self-corrections resolved, lists formatted, tone matched to the app, your own terms spelled right. Choose OpenAI, DeepSeek or Claude.</p>
+      </div>
+      <div class="card">
+        <div class="tag">Layer 3</div>
+        <h3>Auto-focus and voice commands</h3>
+        <p>It writes even when your cursor isn't in a text field, by picking the right one. Say "open the TSMC stock page" and it clicks through the screen step by step. Each step is decided by Jev in about 0.2 s.</p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>What it looks like</h2>
+    <div class="example">
+      <div class="said">
+        <div class="label">You say</div>
+        Um, so we're meeting tomorrow at three, no wait, four, and, uh, bring the laptop
+      </div>
+      <div class="wrote">
+        <div class="label">It types (after AI cleanup)</div>
+        We're meeting tomorrow at four. Bring the laptop.
+      </div>
+      <div class="said">
+        <div class="label">You say (cursor not in a text field)</div>
+        Open the TSMC stock page
+      </div>
+      <div class="wrote">
+        <div class="label">It does</div>
+        <ol class="steps">
+          <li>Types "TSMC" into the search box</li>
+          <li>Presses Enter</li>
+          <li>Clicks "TSMC 2330" in the results</li>
+          <li>Sees the stock page and stops</li>
+        </ol>
+      </div>
+      <p class="note">The command example was measured on a test stock-app window: four steps in 3.3 s, 0.17–0.28 s per decision.</p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Set up in two steps</h2>
+    <div class="install">
+      <div>
+        <h3>Step 1: install and open the app</h3>
+        <p>You need macOS, Node.js 22 or later, and ffmpeg (<code>brew install node ffmpeg</code>).</p>
+        <pre>git clone https://github.com/urusaqqrun/jarvis-voice.git ~/jarvis-voice
+cd ~/jarvis-voice
+./install.sh openai</pre>
+        <p class="note">To pay nothing for transcription, make the last line <code>./install.sh local</code> (on-device recognition; your voice never leaves your Mac). The first time, allow two permissions: Microphone and Accessibility.</p>
+      </div>
+      <div>
+        <h3>Step 2: ask your AI to set it up</h3>
+        <p>Open the AI you use (Claude Code, Codex, ChatGPT, …) and paste this:</p>
+        <blockquote>Please follow ~/jarvis-voice/AI_SETUP.md to set up JarvisVoice for me: fill in my vocabulary and run the tests, and ask me whether I want AI cleanup, auto-focus and voice commands; if I do, set them up and check that they work.</blockquote>
+        <p class="note">It finds the terms you use most in what you've typed before, asks which AI provider you want, has you paste your key into a file only you can read, and runs a check to show it works.</p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>What it costs</h2>
+    <div class="table-wrap">
+      <table>
+        <tr><th>Item</th><th>Rate</th><th>Talking 1 hour a day, per month</th></tr>
+        <tr><td>Transcription (OpenAI <code>gpt-transcribe</code>)</td><td>US$0.0045 per minute of audio sent</td><td>US$7.4</td></tr>
+        <tr><td>Transcription (on-device)</td><td>Runs on your Mac</td><td>Free</td></tr>
+        <tr><td>AI cleanup (DeepSeek, Claude or OpenAI)</td><td>About US$0.00003–0.00008 per passage</td><td>Under US$1</td></tr>
+        <tr><td>Layer 3 decisions (Jev, optional)</td><td>About US$0.00001 each</td><td>About US$0.1</td></tr>
+      </table>
+    </div>
+    <p class="note">You use your own keys and pay each provider directly. It's always listening, so people talking nearby get transcribed too; choose "Pause listening" in the menu during meetings or videos.</p>
+  </section>
+
+  <section>
+    <h2>Where your data goes</h2>
+    <ul class="plain">
+      <li>Audio: only segments with speech go to the transcription service you chose; with on-device recognition it never leaves your Mac.</li>
+      <li>With AI cleanup on: 400 characters on each side of the cursor, the selected text, the last ~1,500 characters visible in the window, the app name, the window title and the URL go to the AI provider you chose.</li>
+      <li>Layer 3: the names of the buttons, links and text fields on screen go to the decision maker (Jev or your AI provider).</li>
+      <li>History, vocabulary, settings and keys stay on your Mac.</li>
+    </ul>
+  </section>
+
+  <footer>
+    JarvisVoice is open source (MIT license) · <a href="https://github.com/urusaqqrun/jarvis-voice">GitHub</a>
+  </footer>
+</main>
+</body>
+</html>

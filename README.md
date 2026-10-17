@@ -1,119 +1,121 @@
-# JarvisVoice：自動語音輸入與操作
+# JarvisVoice: hands-free voice typing and app control
 
-<img src="design/icon-big.png" width="96" alt="JarvisVoice 的選單列圖示：循環箭頭包住三條聲波">
+English ｜ [繁體中文](README.zh-TW.md)
 
-網站：[jarvis-voice.com](https://jarvis-voice.com)
+<img src="design/icon-big.png" width="96" alt="JarvisVoice menu bar icon: a circular arrow around three sound bars">
 
-macOS 選單列小程式。開著就自動收音，你講的話直接寫進正在用的 app：Claude、ChatGPT、瀏覽器、LINE、備忘錄都可以。只寫不送出，要送自己按 Enter。
+Website: [jarvis-voice.com](https://jarvis-voice.com)
 
-分三層，預設都開，每一層都是在前一層上面多做一點；從選單可以關掉第二、三層：
+A macOS menu bar app. While it's running it listens on its own, and what you say goes straight into the app you're using: Claude, ChatGPT, your browser, LINE, Notes, anything. It only types, it never sends; press Enter yourself when you're ready.
 
-| 層 | 什麼時候寫 | 寫什麼 | 寫到哪 |
+It works in three layers. All three are on by default, each one builds on the one before, and you can turn layers 2 and 3 off from the menu:
+
+| Layer | When it writes | What it writes | Where it writes |
 |---|---|---|---|
-| 1. 語音輸入 | 講完一句（停約 0.85 秒） | 轉寫出來的原話 | 游標所在的輸入框；游標不在輸入框就不寫 |
-| 2. AI 整理（像 [Typeless](https://www.typeless.com)） | 講完一段（停約 2 秒） | AI 整理過的字：去贅字、改口只留結果、條列、依 app 調語氣、照你的專有名詞。AI 會參考游標前後的字、app、視窗、網址，可以選 OpenAI、DeepSeek、Claude | 同第 1 層 |
-| 3. 自動找輸入框、語音指令 | 同第 2 層 | 同第 2 層 | 游標不在輸入框時，改成挑出視窗裡該寫的輸入框寫進去。講的是「進到台積電的個股頁」這類指令，就不寫字，直接操作最前面的 app。由 [Jev](https://typesafe.ai) 決定（沒有 Jev 就改問 AI） |
+| 1. Voice typing | After each sentence (a pause of about 0.85 s) | The raw transcript | The text field your cursor is in; if the cursor isn't in a text field, nothing is written |
+| 2. AI cleanup (like [Typeless](https://www.typeless.com)) | After each passage (a pause of about 2 s) | Text cleaned up by AI: filler words removed, self-corrections resolved, lists formatted, tone matched to the app, your own terms spelled right. The AI looks at the text around the cursor, the text visible on screen, the app, the window and the URL. Choose OpenAI, DeepSeek or Claude | Same as layer 1 |
+| 3. Auto-focus and voice commands | Same as layer 2 | Same as layer 2 | If the cursor isn't in a text field, it picks the right field in the window and writes there. If what you said is a command such as "open the TSMC stock page", it doesn't type anything; it operates the frontmost app for you. Decisions are made by [Jev](https://typesafe.ai) (or by your AI if you don't have Jev) |
 
-架構與實測數字見 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。
+Architecture and measured numbers (in Chinese): [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
-## 兩個步驟
+## Two steps
 
-**第一步：裝好、打開小程式**
+**Step 1: install and open the app**
 
-需要 macOS、Node.js 22 以上、ffmpeg（`brew install node ffmpeg`）。
+You need macOS, Node.js 22 or later, and ffmpeg (`brew install node ffmpeg`).
 
 ```bash
 git clone https://github.com/urusaqqrun/jarvis-voice.git ~/jarvis-voice
 cd ~/jarvis-voice
-./install.sh openai   # 用 OpenAI 轉寫（最準）；不想花錢就用 ./install.sh local
+./install.sh openai   # OpenAI transcription (most accurate); use ./install.sh local to pay nothing
 ```
 
-裝完選單列會出現「JarvisVoice」的圖示（循環箭頭包住三條聲波）。第一次用要給兩個權限，都只要一次：
+The JarvisVoice icon (a circular arrow around three sound bars) appears in the menu bar. The first time, macOS asks for two permissions, once each:
 
-1. **麥克風**：跳出「JarvisVoice 想要取用麥克風」時按允許。
-2. **輔助使用**（貼上要用）：第一次講話時會跳出詢問，到「系統設定 → 隱私權與安全性 → 輔助使用」打開「JarvisVoice」。
+1. **Microphone**: allow it when "JarvisVoice would like to access the microphone" appears.
+2. **Accessibility** (needed to paste): you're asked the first time you speak. Turn on "JarvisVoice" in System Settings → Privacy & Security → Accessibility.
 
-用 `openai` 要給 OpenAI 的 key：第二步請 AI 幫你放（key 由你自己在終端機貼，AI 不經手），或自己在 `~/.voice-dictation/config.json` 的 `openai` 裡加 `"apiKeyFile": "放 key 的檔案"`。
+The `openai` engine needs an OpenAI key. Let your AI set it up in step 2 (you paste the key yourself in Terminal; the AI never sees it), or add `"apiKeyFile": "<file with your key>"` under `openai` in `~/.voice-dictation/config.json`.
 
-**第二步：請你的 AI 幫你設定**
+**Step 2: ask your AI to set it up**
 
-每個人常講的產品名、英文縮寫、公司內部用語都不一樣，這些詞最容易被聽錯；AI 整理、自動找輸入框、語音指令也要選 AI、放 key 才能開。打開你常用的 AI（Claude Code、Codex、ChatGPT 都可以），把這句話貼給它：
+Everyone has their own product names, acronyms and in-house jargon, and those are the words speech recognition gets wrong most. AI cleanup, auto-focus and voice commands also need an AI provider and a key. Open the AI you use (Claude Code, Codex, ChatGPT, …) and paste this:
 
-> 請照 ~/jarvis-voice/AI_SETUP.md 幫我設定 JarvisVoice：填專有名詞並跑測試，也問我要不要開 AI 整理、自動找輸入框、語音指令，要的話幫我設定好並檢查。
+> Please follow ~/jarvis-voice/AI_SETUP.md to set up JarvisVoice for me: fill in my vocabulary and run the tests, and ask me whether I want AI cleanup, auto-focus and voice commands; if I do, set them up and check that they work.
 
-AI 會：
-- 從你打過的字裡找出常講的詞，寫進 `~/.voice-dictation/vocabulary.txt`，跑測試比較加詞彙前後的準度。實測 4 句中英夾雜的開發用語：不加詞彙整句全對 1/4，加了 4/4（「平行沙河」變回「平行沙盒」、「香芹卡」變回「鑲嵌卡」）。
-- 跟你說明 AI 整理會送出什麼、要多少錢，問你要用 OpenAI、DeepSeek 還是 Claude；請你自己把 key 貼進一個只有你讀得到的檔案；把開關寫進設定檔；跑 `node ~/jarvis-voice/bin/ai-check.mjs` 確認 AI 和決策器都通。
+The AI will:
+- Find the terms you use most in what you've typed before, write them to `~/.voice-dictation/vocabulary.txt`, and run a test comparing accuracy with and without them. In our test of 4 mixed Chinese–English developer sentences, 1/4 came out fully correct without the vocabulary and 4/4 with it.
+- Explain what AI cleanup sends and what it costs, ask whether you want OpenAI, DeepSeek or Claude, have you paste your key into a file only you can read, write the switches to your config, and run `node ~/jarvis-voice/bin/ai-check.mjs` to confirm the AI and the decision maker both work.
 
-## 平常怎麼用
+## Everyday use
 
-- **選單列圖示**：一個循環箭頭包住三條聲波（自動＋聲音）。固定寬度、跟其他選單列圖示同色，只換箭頭裡面的東西：
-  - 三條聲波：收音中。
-  - 聲波變高：聽到你講話。
-  - 打勾：剛貼好。
-  - 叉叉：沒寫進去（游標不在輸入框，也沒找到該寫的輸入框），或語音指令沒做完。
-  - 聲波變淡：待命（最前面的 app 不收音）。
-  - ‖：暫停。
-  - 驚嘆號：出錯，點開選單看原因。
-- **游標不在輸入框時**（例如在看網頁本身、在 Finder 選檔案）：沒開「自動找輸入框」就不寫，圖示會短暫變成叉叉，可以點選單的「複製上一句」把那段拿回來；開了就挑視窗裡該寫的輸入框寫進去。
-- **開會時不收音**：Zoom、Teams、FaceTime、Webex 在最前面時不收音。旁邊有人講話、在放影片，就按選單的「暫停收音」。
-- **選單**：暫停／繼續、複製上一句、換回原文、AI 整理（關／OpenAI／DeepSeek／Claude）、自動找輸入框、語音指令、編輯專有名詞、編輯設定檔、說明、結束。
+- **Menu bar icon**: a circular arrow around three sound bars (automatic + voice). It keeps a fixed width and the same color as your other menu bar icons; only the inside changes:
+  - Three bars: listening.
+  - Taller bars: hearing you speak.
+  - Check mark: just pasted.
+  - Cross: nothing was written (the cursor wasn't in a text field and no field was found), or a voice command didn't finish.
+  - Faded bars: standing by (the frontmost app is excluded).
+  - ‖: paused.
+  - Exclamation mark: something went wrong; open the menu to see why.
+- **When the cursor isn't in a text field** (you're reading a web page, selecting files in Finder): with auto-focus off, nothing is written, the icon briefly shows a cross, and "Copy last sentence" in the menu gets the text back; with auto-focus on, it picks the right field in the window and writes there.
+- **Meetings**: it doesn't listen while Zoom, Teams, FaceTime or Webex is frontmost. If people are talking nearby or a video is playing, choose "Pause listening" in the menu.
+- **Menu**: pause/resume, copy last sentence, revert to the raw transcript, AI cleanup (off / OpenAI / DeepSeek / Claude), auto-focus, voice commands, edit vocabulary, edit config, help, quit.
 
-## AI 整理（第二層）
+## AI cleanup (layer 2)
 
-預設就開（有 AI 的 key 才會動，沒有就只跑第一層）。選單「AI 整理」可以換家，選「關」就回到一句一句貼。開著時：
+On by default (it only runs when you have an AI key; without one you get layer 1). Switch providers under "AI cleanup" in the menu, or choose "Off" to go back to sentence-by-sentence pasting. While it's on:
 
-- **一段一段整理**：停超過 1.8 秒算一段講完，停下後約 3 秒出字。
-- **整理內容**：
-  - 去掉「嗯、那個、然後然後」。
-  - 「三點，不對，四點」只留四點。
-  - 講「第一、第二」排成條列；講「換行」就換行。
-  - 補標點、台灣正體，英文照英文寫，不翻譯。
-  - 專有名詞照詞彙檔的寫法。
-- **看畫面**：視窗裡看得到的字（例如正在聊的對話，不含輸入框）最後約 1,500 字一起給 AI。畫面在討論 JarvisVoice，你講的卻被聽成 JavaScript，就會改回 JarvisVoice；真的在講程式的 JavaScript 不會被改。
-- **看游標前後**：接在半句話後面就接下去，後面還有字就不加句號。
-- **依 app 調語氣**：聊天口語、email 正式、給 AI 的指令精準、文件精簡。可以用 `ai.styles` 改。
-- **改選取的字**：選起來講「改正式一點」「縮短」「翻成英文」。
-- **用講的修正**：講「刪掉剛剛那句」「換回原文」，或點選單「換回原文」，把上一段換回轉寫原稿。
-- **詞彙表自動更新**：從畫面上和你自己的改字，挑新的專有名詞加進詞彙檔最後的「自動學到」區。
-  - 不是看到就加：畫面上的詞要在 3 次不同的時候（相隔 10 分鐘以上）都看到，或你真的講到了，才加；你貼上後自己改掉的字直接加。
-  - 有上限：整張詞彙表最多 250 個、自動學到的最多 80 個，滿了先拿掉最少用到、最久沒用到的自動詞。你自己寫的詞不會被動。
-- **歷史**：存在 `~/.voice-dictation/history.jsonl`，只在你的電腦。
-- **送給 AI 的內容**：游標前後各 400 字、選取的字、視窗裡看得到的字（最後約 1,500 字）、app、視窗標題、網址。
+- **Passage by passage**: a pause longer than 1.8 s ends a passage; text appears about 3 s after you stop.
+- **What it cleans up**:
+  - Removes filler ("um", "uh", "like", "you know", and their Chinese equivalents).
+  - "Three o'clock, no, four" keeps only four.
+  - "First … second …" becomes a list; saying "new line" inserts a line break.
+  - Adds punctuation, keeps your language (English stays English, nothing is translated), writes Chinese in Taiwan Traditional characters.
+  - Spells your terms the way your vocabulary file does.
+- **Reads the screen**: the last ~1,500 characters visible in the window (for example the conversation you're in, not including the text field) go to the AI. If the screen is about JarvisVoice and you were heard as saying "JavaScript", it fixes it to JarvisVoice; when you really are talking about JavaScript code, it leaves it alone.
+- **Reads around the cursor**: if you're continuing half a sentence it carries on from there; if there's text after the cursor it won't add a period.
+- **Matches the app's tone**: casual for chat, polished for email, precise for prompts to AI, concise for documents. Customize with `ai.styles`.
+- **Rewrites a selection**: select text and say "make it more formal", "shorten it", "translate to English".
+- **Fix by voice**: say "delete that" or "revert to original", or choose "Revert to original" in the menu, to swap the last passage back to the raw transcript.
+- **Vocabulary keeps itself up to date**: new terms from your screen and from your own corrections go into the "auto-learned" section at the end of the vocabulary file.
+  - Not everything it sees: a term on screen has to show up on 3 separate occasions (at least 10 minutes apart), or you have to actually say it, before it's added. Words you correct yourself after pasting are added right away.
+  - There's a cap: at most 250 terms in total and 80 auto-learned ones. When it's full, the least used, longest unused auto-learned term goes first. Terms you wrote yourself are never touched.
+- **History**: kept in `~/.voice-dictation/history.jsonl`, only on your Mac.
+- **What's sent to the AI**: 400 characters on each side of the cursor, the selected text, the last ~1,500 characters visible in the window, the app, the window title and the URL.
 
-| 選項 | 預設模型 | 速度（實測中位數） | 費用 |
+| Provider | Default model | Speed (measured median) | Cost |
 |---|---|---|---|
-| DeepSeek | `deepseek-flash` | 0.75 秒 | 每段約 0.00004 美元（平日台灣 9–12、14–18 點加倍） |
-| Claude | `claude-haiku-5-5` | 0.85 秒 | 每段約 0.00004 美元 |
-| OpenAI | `gpt-6-luna` | 1.1 秒 | 每段約 0.00003 美元 |
+| DeepSeek | `deepseek-flash` | 0.75 s | About US$0.00004 per passage (doubled during DeepSeek's peak hours) |
+| Claude | `claude-haiku-5-5` | 0.85 s | About US$0.00004 per passage |
+| OpenAI | `gpt-6-luna` | 1.1 s | About US$0.00003 per passage |
 
-一天口述 1 小時，AI 整理一個月不到 1 美元。
+Dictating an hour a day, AI cleanup costs less than US$1 a month.
 
-## 自動找輸入框、語音指令（第三層）
+## Auto-focus and voice commands (layer 3)
 
-- **自動找輸入框**：游標不在輸入框時，由決策器從視窗裡所有輸入框（搜尋框、網址列也算）挑一個，對焦後寫進去。
-- **語音指令**（要先開 AI 整理）：講「進到台積電的個股頁」「打開設定」「搜尋鴻海」「切到某某 session」，直接操作最前面的 app：
-  - 每一步列出畫面上的按鈕、連結、輸入框，由決策器挑要點哪個、填哪裡、按 Enter。
-  - 做到決策器說完成或做不到為止；決策器信心太低就停下來。按「暫停收音」也會停。
-  - 游標在輸入框裡時（例如 Claude 的輸入框），Jev 會看畫面上有什麼來判斷：很確定是要操作畫面，或講到畫面上某個東西的名字，就當指令；像「你切到另一個分支再跑測試」這種要打給 AI 的話照樣打字。分不清的短句，開頭講「指令，……」一定當指令。
-- **決策器**：
-  - 有 Jev key（`jev`）就用 Jev，一次約 0.2 秒。
-  - 沒有就改問 AI 整理那家，一次約 1 秒。
+- **Auto-focus**: when the cursor isn't in a text field, the decision maker picks one of the fields in the window (search boxes and the address bar included), focuses it and writes there.
+- **Voice commands** (needs AI cleanup): say "open the TSMC stock page", "open settings", "search for Foxconn" or "switch to the such-and-such session", and it operates the frontmost app:
+  - At each step it lists the buttons, links and text fields on screen, and the decision maker picks what to click, where to type, or whether to press Enter.
+  - It keeps going until the decision maker says it's done or can't be done; it stops if the decision maker's confidence is too low. "Pause listening" also stops it.
+  - When the cursor is in a text field (for example Claude's prompt box), Jev looks at what's on screen to decide: if it's clearly an instruction to operate the screen, or it names something on screen, it's treated as a command; something like "switch to another branch and run the tests again", meant for the AI, is typed as usual. For short, ambiguous phrases, start with "command, …" and it's always treated as a command.
+- **Decision maker**:
+  - With a Jev key (`jev`), Jev decides, about 0.2 s per decision.
+  - Without one, your AI provider decides, about 1 s per decision.
 
-## 轉寫引擎
+## Transcription engines
 
-| 引擎 | 準度 | 費用 | 聲音送去哪 |
+| Engine | Accuracy | Cost | Where your audio goes |
 |---|---|---|---|
-| `openai`（`gpt-transcribe`，預設） | 最準，吃專有名詞 | 每分鐘 0.0045 美元；一天講 1 小時、一個月約 7.4 美元 | OpenAI |
-| `openai`（`gpt-live-transcribe`） | 稍差 | 每分鐘 0.017 美元 | OpenAI |
-| `local`（SenseVoice-Small） | 中文不錯，英文較弱，不吃專有名詞 | 免費 | 不離開你的電腦 |
-| `parallelsandbox` | 同 `gpt-live-transcribe` | 依平行沙盒的方案 | 平行沙盒，再轉給 OpenAI |
+| `openai` (`gpt-transcribe`, default) | Most accurate, uses your vocabulary | US$0.0045 a minute; an hour a day is about US$7.4 a month | OpenAI |
+| `openai` (`gpt-live-transcribe`) | Slightly worse | US$0.017 a minute | OpenAI |
+| `local` (SenseVoice-Small) | Good Chinese, weaker English, ignores vocabulary | Free | Never leaves your Mac |
+| `parallelsandbox` | Same as `gpt-live-transcribe` | Depends on your ParallelSandbox plan | ParallelSandbox, then OpenAI |
 
-只有判定是人聲的片段才會送去轉寫，安靜時什麼都不送。費用已經算進每句前後多帶的約 1.25 秒。換引擎就跑 `./install.sh <引擎>`，或直接改設定檔，存檔後幾秒內就會套用。
+Only segments recognized as speech are sent; nothing is sent while it's quiet. Costs include the ~1.25 s of padding around each sentence. To switch engines run `./install.sh <engine>`, or edit the config file; changes apply within a few seconds of saving.
 
-## 設定檔
+## Config file
 
-位置在 `~/.voice-dictation/config.json`，沒寫的欄位照預設：
+`~/.voice-dictation/config.json`; anything you leave out uses the default:
 
 ```json
 {
@@ -124,73 +126,73 @@ AI 會：
     "apiKeyFile": "~/secrets/openai.env",
     "model": "gpt-transcribe",
     "languages": ["zh-tw", "en"],
-    "prompt": "台灣工程師用中文夾英文口述，內容是軟體開發與產品營運。"
+    "prompt": "A Taiwanese engineer dictating in Chinese mixed with English about software development and operations."
   }
 }
 ```
 
-| 欄位 | 說明 |
+| Field | Meaning |
 |---|---|
-| `engine` | `openai`、`local`、`parallelsandbox` |
-| `apps` | 只在這些 app 收音（bundle id），預設 `["*"]` 全部 |
-| `excludeApps` | 這些 app 在最前面時不收音，預設是開會、通話用的 app |
-| `output` | `traditional`（台灣正體）、`simplified`、`original` |
-| `replacements` | 轉出來的字固定替換，給測試後仍然固定錯的寫法用 |
-| `openai.model` | `gpt-transcribe`（預設，整句送出）或 `gpt-live-transcribe`（即時） |
-| `openai.apiKey`／`openai.apiKeyFile` | key 本身，或放 key 的檔案（整個檔案就是 key，或含 `OPENAI_API_KEY=` 的 .env）；都沒有就讀環境變數 `OPENAI_API_KEY` |
-| `openai.languages` | 預期的語言，例如 `["zh-tw", "en"]` |
-| `openai.prompt` | 一兩句話描述場合，不要塞詞彙清單 |
-| `openai.vocabularyFile` | 專有名詞檔，預設 `~/.voice-dictation/vocabulary.txt`，一行一個詞 |
-| `local.language` | `auto` 或 `zh`、`en`、`yue`、`ja`、`ko` |
-| `ai.enabled`／`ai.provider` | AI 整理開關（預設開）；`deepseek`、`openai`、`claude`，沒寫就用已經有 key 的那家。選單可以直接切 |
-| `ai.keys`／`ai.keyFiles`／`ai.keyCommands` | 各家的 key、放 key 的檔案、或拿 key 的指令（例如 `aws ssm get-parameter ...`，key 不落地）。都沒有就讀環境變數 `DEEPSEEK_API_KEY`、`ANTHROPIC_API_KEY`；OpenAI 沿用 `openai` 的 key |
-| `ai.models` | 換模型，例如 `{ "openai": "gpt-4.1-mini" }` |
-| `ai.segmentPauseMs` | 停多久算一段講完，預設 1800 |
-| `ai.styles` | 各 app（bundle id）或網站（網域）的語氣，例如 `{ "com.tinyspeck.slackmacgap": "口語、簡短" }` |
-| `ai.screenChars` | 視窗裡看得到的字給 AI 幾個字，預設 1500 |
-| `ai.history`／`ai.learn` | 本機歷史、從你的改字學詞，預設都開 |
-| `ai.autoVocabulary` | 詞彙表自動更新：`{ "enabled": true, "max": 250, "maxAuto": 80, "minSightings": 3 }` |
-| `autoFocus` | 游標不在輸入框時自動找輸入框（預設開） |
-| `commands` | 語音指令（預設開） |
-| `jev.apiKey`／`jev.apiKeyFile`／`jev.apiKeyCommand` | TypeSafe 的 key（環境變數 `TYPESAFE_API_KEY` 也可以） |
+| `engine` | `openai`, `local`, `parallelsandbox` |
+| `apps` | Only listen in these apps (bundle ids); default `["*"]`, all apps |
+| `excludeApps` | Don't listen while these apps are frontmost; defaults to meeting and calling apps |
+| `output` | `traditional` (Taiwan Traditional Chinese), `simplified`, `original` |
+| `replacements` | Fixed replacements for spellings that are still wrong after testing |
+| `openai.model` | `gpt-transcribe` (default, whole sentence at once) or `gpt-live-transcribe` (real-time) |
+| `openai.apiKey` / `openai.apiKeyFile` | The key itself, or a file containing it (just the key, or a .env with `OPENAI_API_KEY=`); otherwise the `OPENAI_API_KEY` environment variable |
+| `openai.languages` | Expected languages, e.g. `["zh-tw", "en"]` |
+| `openai.prompt` | A sentence or two describing the setting; don't put your vocabulary here |
+| `openai.vocabularyFile` | Vocabulary file, default `~/.voice-dictation/vocabulary.txt`, one term per line |
+| `local.language` | `auto`, or `zh`, `en`, `yue`, `ja`, `ko` |
+| `ai.enabled` / `ai.provider` | AI cleanup on/off (default on); `deepseek`, `openai`, `claude`. If unset, whichever provider you already have a key for. Also switchable from the menu |
+| `ai.keys` / `ai.keyFiles` / `ai.keyCommands` | Each provider's key, a file with the key, or a command that prints it (e.g. `aws ssm get-parameter ...`, so the key never touches disk). Otherwise the `DEEPSEEK_API_KEY` / `ANTHROPIC_API_KEY` environment variables; OpenAI reuses the `openai` key |
+| `ai.models` | Use a different model, e.g. `{ "openai": "gpt-4.1-mini" }` |
+| `ai.segmentPauseMs` | How long a pause ends a passage, default 1800 |
+| `ai.styles` | Tone per app (bundle id) or website (domain), e.g. `{ "com.tinyspeck.slackmacgap": "casual and short" }` |
+| `ai.screenChars` | How many characters of on-screen text go to the AI, default 1500 |
+| `ai.history` / `ai.learn` | Local history, learning from your corrections; both on by default |
+| `ai.autoVocabulary` | Automatic vocabulary updates: `{ "enabled": true, "max": 250, "maxAuto": 80, "minSightings": 3 }` |
+| `autoFocus` | Find a text field when the cursor isn't in one (default on) |
+| `commands` | Voice commands (default on) |
+| `jev.apiKey` / `jev.apiKeyFile` / `jev.apiKeyCommand` | Your TypeSafe key (or the `TYPESAFE_API_KEY` environment variable) |
 
-## 疑難排解
+## Troubleshooting
 
-- **選單列沒有圖示**：打開 `~/Applications/JarvisVoice.app`。macOS 26 可以到「系統設定 → 選單列」確認它被允許顯示。
-- **圖示是驚嘆號**：點開選單看第一行寫的原因。
-- **AI 整理沒作用、選單寫「（沒有 key）」**：跑 `node ~/jarvis-voice/bin/ai-check.mjs`，它會說缺什麼。
-- **字沒貼進去**：先確認游標在輸入框裡，再確認「輔助使用」裡有打開「JarvisVoice」。
-- **看詳細記錄**：`~/.voice-dictation/listen.log`。
-- **重新安裝或更新**：`git pull && ./install.sh`。外殼 `app/main.js` 或打包設定沒變就不會重包，權限不用重給；有變的話系統會再問一次麥克風，輔助使用要到設定裡把「JarvisVoice」關掉再打開。
+- **No menu bar icon**: open `~/Applications/JarvisVoice.app`. On macOS 26, check System Settings → Menu Bar to make sure it's allowed.
+- **Exclamation mark icon**: open the menu; the first line says why.
+- **AI cleanup does nothing, or the menu says "(no key)"**: run `node ~/jarvis-voice/bin/ai-check.mjs`; it tells you what's missing.
+- **Nothing gets pasted**: make sure the cursor is in a text field, then make sure "JarvisVoice" is turned on under Accessibility.
+- **Detailed log**: `~/.voice-dictation/listen.log`.
+- **Reinstall or update**: `git pull && ./install.sh`. If the app shell (`app/main.js`) and packaging haven't changed, it isn't rebuilt and you keep your permissions; if they have, macOS asks for the microphone again, and you need to turn "JarvisVoice" off and on again under Accessibility.
 
-## 怎麼運作
+## How it works
 
-- `app/main.js`：選單列小程式的外殼，用 macOS 內建的 `osacompile` 包成 `JarvisVoice.app`，不用 Xcode。麥克風與輔助使用權限都算在它頭上。
-- `app/ui.js`：選單列的介面，以及帶起常駐程式的邏輯。外殼啟動時才讀進來，所以改它不用重包 app、權限也不用重給；改完從選單「結束」再打開就生效。
-- `bin/listen.mjs`：常駐程式。它看哪個 app 在最前面，用 ffmpeg 收音、在本機切句，交給轉寫引擎；AI 整理開著就分段交給 AI，再寫進輸入框或執行指令。
-- `bin/engines/`：`batch.mjs`（OpenAI 一般轉寫）、`realtime.mjs`（即時轉寫，OpenAI 或平行沙盒）、`local.mjs`（sherpa-onnx 跑 SenseVoice）。
-- `bin/ax-agent.js`：常駐的「輔助使用」小幫手（JXA）。讀上下文、找輸入框、對焦、貼上（暫存剪貼簿 → Cmd+V → 還原，只送給最前面的 app）、選回剛貼的字、列出畫面上的按鈕並操作。
-- `bin/editor.mjs`：AI 整理。`bin/ai-check.mjs`：檢查 AI 整理和決策器設定好了沒。`bin/decide.mjs`：第三層的決策（Jev）。`bin/commander.mjs`：語音指令。`bin/targeter.mjs`：挑輸入框的規則。`bin/learn.mjs`：從你的改字學詞。`bin/vocab-auto.mjs`：詞彙表自動更新與上限。
-- `bin/vocab-test.mjs`：專有名詞測試（見 [AI_SETUP.md](AI_SETUP.md)）。
-- `site/`：網站 jarvis-voice.com，push 到 main 後由 GitHub Actions 發到 GitHub Pages。
+- `app/main.js`: the menu bar app shell, packaged into `JarvisVoice.app` with macOS's built-in `osacompile` (no Xcode). Microphone and Accessibility permissions belong to it.
+- `app/ui.js`: the menu bar UI and the code that starts the background process. The shell loads it at launch, so changing it doesn't require rebuilding the app or re-granting permissions; quit from the menu and reopen to apply.
+- `bin/listen.mjs`: the background process. It watches which app is frontmost, records with ffmpeg, splits sentences locally and hands them to the transcription engine; with AI cleanup on, it groups them into passages for the AI, then writes into the text field or runs the command.
+- `bin/engines/`: `batch.mjs` (OpenAI transcription), `realtime.mjs` (real-time transcription via OpenAI or ParallelSandbox), `local.mjs` (SenseVoice via sherpa-onnx).
+- `bin/ax-agent.js`: the long-running Accessibility helper (JXA). Reads context and on-screen text, finds and focuses text fields, pastes (save clipboard → Cmd+V → restore, only to the frontmost app), selects what it just pasted to replace it, and lists and operates on-screen controls.
+- `bin/editor.mjs`: AI cleanup. `bin/ai-check.mjs`: checks that AI cleanup and the decision maker are set up. `bin/decide.mjs`: layer 3 decisions (Jev). `bin/commander.mjs`: voice commands. `bin/targeter.mjs`: rules for picking a text field. `bin/learn.mjs`: learning from your corrections. `bin/vocab-auto.mjs`: automatic vocabulary updates and the cap.
+- `bin/vocab-test.mjs`: vocabulary test (see [AI_SETUP.md](AI_SETUP.md)).
+- `site/`: the jarvis-voice.com website, published to GitHub Pages by GitHub Actions on every push to main.
 
-## 開發
+## Development
 
 ```bash
 npm install
-npm test                                  # 不送按鍵、不搶前景
-VOICE_DICTATION_FOCUS_TESTS=1 npm test    # 再加跑「測試視窗在最前面時真的貼得進去、換得回來」（會搶前景約 2 秒）
-TYPESAFE_API_KEY=... npm test             # 再加跑真的 Jev 操作測試用看盤視窗
+npm test                                  # never sends keystrokes or takes focus
+VOICE_DICTATION_FOCUS_TESTS=1 npm test    # also checks real pasting and reverting with the test window frontmost (takes focus for ~2 s)
+TYPESAFE_API_KEY=... npm test             # also lets the real Jev drive the stock-app test window
 ```
 
-## 解除安裝
+## Uninstall
 
 ```bash
 ./uninstall.sh
 ```
 
-設定、詞彙、模型會留在 `~/.voice-dictation`，不要了就自己刪掉。
+Your config, vocabulary and models stay in `~/.voice-dictation`; delete it yourself if you don't need them.
 
-## 授權
+## License
 
-程式碼採 MIT 授權。本機模型由 `install.sh` 從 [k2-fsa/sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) 下載，沒有放在這個 repo 裡；模型授權見 [FunASR 的模型授權條款](https://github.com/modelscope/FunASR?tab=readme-ov-file#license)。
+The code is MIT licensed. The local model is downloaded by `install.sh` from [k2-fsa/sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) and isn't part of this repo; see the [FunASR model license](https://github.com/modelscope/FunASR?tab=readme-ov-file#license).

@@ -6,6 +6,15 @@
 <title>JarvisVoice：自動語音輸入與操作</title>
 <meta name="description" content="macOS 選單列小程式。開著就自動收音，你講的話直接寫進正在用的 app；講指令，它就幫你操作 app。">
 <link rel="icon" href="favicon.png">
+<link rel="alternate" hreflang="zh-Hant" href="https://jarvis-voice.com/">
+<link rel="alternate" hreflang="en" href="https://jarvis-voice.com/en/">
+<link rel="alternate" hreflang="x-default" href="https://jarvis-voice.com/en/">
+<script>
+  // 第一次來、瀏覽器不是中文：帶去英文版（選過語言就記住，不再自動帶）
+  try {
+    if (!localStorage.getItem('lang') && !/^zh/i.test(navigator.language || '')) location.replace('en/');
+  } catch (e) { /* 存不了就算了 */ }
+</script>
 <style>
   :root {
     --bg: #fbfaf8;
@@ -47,7 +56,8 @@
   p { margin: 0 0 12px; }
   section { padding: 56px 0; border-top: 1px solid var(--line); }
 
-  .hero { padding: 72px 0 56px; display: grid; gap: 20px; justify-items: start; }
+  .hero { padding: 72px 0 56px; display: grid; gap: 20px; justify-items: start; position: relative; }
+  .lang { position: absolute; top: 24px; right: 0; font-size: 15px; color: var(--muted); text-decoration: none; border: 1px solid var(--line); border-radius: 8px; padding: 4px 10px; }
   .hero img { width: 88px; height: 88px; filter: var(--icon-filter); }
   .hero h1 { font-size: clamp(34px, 6vw, 52px); letter-spacing: -0.01em; }
   .hero h1 span { display: block; font-size: 0.5em; font-weight: 600; color: var(--muted); margin-top: 6px; letter-spacing: 0; }
@@ -105,6 +115,7 @@
 <body>
 <main>
   <header class="hero">
+    <a class="lang" href="en/" onclick="try { localStorage.setItem('lang', 'en'); } catch (e) {}">English</a>
     <img src="icon.png" alt="JarvisVoice 的圖示：循環箭頭包住三條聲波">
     <h1>JarvisVoice<span>自動語音輸入與操作</span></h1>
     <p class="lead">macOS 選單列小程式。開著就自動收音，你講的話直接寫進正在用的 app；講指令，它就幫你操作 app。Claude、ChatGPT、瀏覽器、LINE、備忘錄都可以。只寫不送出，要送自己按 Enter。</p>
@@ -115,17 +126,18 @@
   </header>
 
   <section>
-    <h2>三層，從選單打開</h2>
+    <h2>三層，預設全開</h2>
+    <p class="note">每一層都是在前一層上面多做一點；第二、三層可以從選單關掉。</p>
     <div class="layers">
       <div class="card">
-        <div class="tag">第一層・裝好就有</div>
+        <div class="tag">第一層</div>
         <h3>語音輸入</h3>
         <p>講完一句（停約 0.85 秒），轉寫出來的字就貼進游標所在的輸入框。不用按任何鍵。</p>
       </div>
       <div class="card">
         <div class="tag">第二層</div>
         <h3>AI 整理</h3>
-        <p>一段話講完，帶上游標前後的字、app、網址交給 AI，整理成你本來想打的字：去贅字、改口只留結果、條列、依 app 調語氣、照你的專有名詞。OpenAI、DeepSeek、Claude 三選一。</p>
+        <p>一段話講完，帶上游標前後的字、畫面上看得到的字、app、網址交給 AI，整理成你本來想打的字：去贅字、改口只留結果、條列、依 app 調語氣、照你的專有名詞。OpenAI、DeepSeek、Claude 三選一。</p>
       </div>
       <div class="card">
         <div class="tag">第三層</div>
@@ -201,7 +213,7 @@ cd ~/jarvis-voice
     <h2>資料去哪裡</h2>
     <ul class="plain">
       <li>聲音：只送有人聲的片段給你選的轉寫服務；用本機辨識就不離開電腦。</li>
-      <li>AI 整理開著時：游標前後各 400 字、選取的字、app 名稱、視窗標題、網址，送給你選的 AI。</li>
+      <li>AI 整理開著時：游標前後各 400 字、選取的字、視窗裡看得到的字（最後約 1,500 字）、app 名稱、視窗標題、網址，送給你選的 AI。</li>
       <li>第三層：畫面上按鈕、連結、輸入框的名稱，送給決策器（Jev 或你選的 AI）。</li>
       <li>歷史、詞彙、設定、key 都只存在你的電腦。</li>
     </ul>

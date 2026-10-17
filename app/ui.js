@@ -10,7 +10,12 @@
 // BUILD（{ node, repo, state }）由外殼放在全域。
 const LISTEN = `${BUILD.repo}/bin/listen.mjs`;
 const NODE_DIR = BUILD.node.replace(/\/[^/]*$/, '');
-const ENGINE_NAMES = { local: '本機', openai: 'OpenAI', parallelsandbox: '平行沙盒' };
+// 系統語言是中文就顯示中文，其他都用英文（VOICE_DICTATION_LANG 可以指定，測試用）
+const LANG = ObjC.unwrap($.NSProcessInfo.processInfo.environment.objectForKey('VOICE_DICTATION_LANG'))
+  || ObjC.unwrap($.NSLocale.preferredLanguages.firstObject) || '';
+const ZH = /^zh/i.test(LANG);
+const t = (zh, en) => (ZH ? zh : en);
+const ENGINE_NAMES = { local: t('本機', 'on-device'), openai: 'OpenAI', parallelsandbox: t('平行沙盒', 'ParallelSandbox') };
 const GUIDE_URL = 'https://github.com/urusaqqrun/jarvis-voice#readme';
 const AI_NAMES = { openai: 'OpenAI', deepseek: 'DeepSeek', claude: 'Claude' };
 
@@ -36,17 +41,17 @@ const statePath = (name) => `${BUILD.state}/${name}`;
 const fm = () => $.NSFileManager.defaultManager;
 
 function label() {
-  const name = ENGINE_NAMES[view.engine] ? `（${ENGINE_NAMES[view.engine]}）` : '';
+  const name = ENGINE_NAMES[view.engine] ? t(`（${ENGINE_NAMES[view.engine]}）`, ` (${ENGINE_NAMES[view.engine]})`) : '';
   switch (view.state) {
     case 'listening': return settings.ai.enabled && settings.ai.ready
-      ? `聽著${name}：講完一段，${AI_NAMES[settings.ai.provider]} 整理後寫進輸入框`
-      : `聽著${name}：講完一句就貼進游標所在的輸入框`;
-    case 'standby': return `待命${name}：最前面的 app 不收音`;
-    case 'paused': return `已暫停${name}`;
-    case 'error': return `出錯：${view.message}`;
-    case 'already-running': return '已經有另一個 JarvisVoice 在跑，等它結束後接手';
-    case 'off': return '常駐程式沒在跑，重新啟動中…';
-    default: return '啟動中…';
+      ? t(`聽著${name}：講完一段，${AI_NAMES[settings.ai.provider]} 整理後寫進輸入框`, `Listening${name}: each passage is cleaned up by ${AI_NAMES[settings.ai.provider]} and typed in`)
+      : t(`聽著${name}：講完一句就貼進游標所在的輸入框`, `Listening${name}: each sentence is pasted where your cursor is`);
+    case 'standby': return t(`待命${name}：最前面的 app 不收音`, `Standing by${name}: the frontmost app is excluded`);
+    case 'paused': return t(`已暫停${name}`, `Paused${name}`);
+    case 'error': return t(`出錯：${view.message}`, `Error: ${view.message}`);
+    case 'already-running': return t('已經有另一個 JarvisVoice 在跑，等它結束後接手', 'Another JarvisVoice is running; taking over when it exits');
+    case 'off': return t('常駐程式沒在跑，重新啟動中…', 'The background process stopped; restarting…');
+    default: return t('啟動中…', 'Starting…');
   }
 }
 
@@ -118,8 +123,8 @@ function iconImage(kind) {
 
 // 選單列圖示要畫哪一種，以及滑鼠停上去的說明
 function look() {
-  if (flash && Date.now() < flash.until) return flash.kind === 'pasted' ? ['pasted', '已貼上'] : ['nofield', '游標不在輸入框，沒貼'];
-  if (view.state === 'listening') return hearing ? ['speaking', '說話中'] : ['listening', ''];
+  if (flash && Date.now() < flash.until) return flash.kind === 'pasted' ? ['pasted', t('已貼上', 'Pasted')] : ['nofield', t('游標不在輸入框，沒貼', 'Not in a text field; nothing pasted')];
+  if (view.state === 'listening') return hearing ? ['speaking', t('說話中', 'Hearing you')] : ['listening', ''];
   if (view.state === 'paused') return ['paused', ''];
   if (view.state === 'error') return ['error', ''];
   return ['standby', ''];
@@ -161,18 +166,20 @@ function refresh() {
   statusItem.button.setImage(iconImage(kind));
   statusItem.button.setToolTip(`JarvisVoice：${hint || label()}`);
   statusLine.setTitle(label());
-  toggleItem.setTitle(view.state === 'paused' ? '繼續收音' : '暫停收音');
+  toggleItem.setTitle(view.state === 'paused' ? t('繼續收音', 'Resume listening') : t('暫停收音', 'Pause listening'));
 }
 
 function refreshSettings() {
   if (!aiMenuItem) return;
   const { ai } = settings;
-  aiMenuItem.setTitle(`AI 整理：${ai.enabled ? `${AI_NAMES[ai.provider]}${ai.ready ? '' : '（沒有 key）'}` : '關'}`);
+  aiMenuItem.setTitle(`${t('AI 整理：', 'AI cleanup: ')}${ai.enabled ? `${AI_NAMES[ai.provider]}${ai.ready ? '' : t('（沒有 key）', ' (no key)')}` : t('關', 'Off')}`);
   aiOffItem.setState(ai.enabled ? 0 : 1);
   for (const [provider, item] of Object.entries(aiItems)) item.setState(ai.enabled && ai.provider === provider ? 1 : 0);
   autoFocusItem.setState(settings.autoFocus ? 1 : 0);
   commandsItem.setState(settings.commands ? 1 : 0);
-  commandsItem.setTitle(`語音指令（游標不在輸入框時直接操作 app${settings.decider ? `，${settings.decider} 決策` : ''}）`);
+  commandsItem.setTitle(settings.decider
+    ? t(`語音指令（直接操作 app，${settings.decider} 決策）`, `Voice commands (operate apps, decided by ${settings.decider})`)
+    : t('語音指令（直接操作 app）', 'Voice commands (operate apps)'));
 }
 
 // 改設定檔：讀進來、改、寫回去；常駐程式看到檔案改了會自己換設定
@@ -306,7 +313,7 @@ function startListener() {
     t.launch;
     task = t;
   } catch (err) {
-    view = { ...view, state: 'error', message: `常駐程式開不起來（${BUILD.node}）：${err}` };
+    view = { ...view, state: 'error', message: t(`常駐程式開不起來（${BUILD.node}）：${err}`, `Can't start the background process (${BUILD.node}): ${err}`) };
     refresh();
     scheduleRestart(30);
   }
@@ -327,7 +334,7 @@ ObjC.registerSubclass({
       types: ['void', ['id']],
       implementation() {
         const path = statePath('vocabulary.txt');
-        ensureFile(path, '# 專有名詞：一行一個，# 後面是註解。可以請你的 AI 照 AI_SETUP.md 幫你填。\n');
+        ensureFile(path, t('# 專有名詞：一行一個，# 後面是註解。可以請你的 AI 照 AI_SETUP.md 幫你填。\n', '# Vocabulary: one term per line; # starts a comment. Your AI can fill this in by following AI_SETUP.md.\n'));
         openInTextEdit(path);
       },
     },
@@ -339,7 +346,13 @@ ObjC.registerSubclass({
         openInTextEdit(path);
       },
     },
-    'openGuide:': { types: ['void', ['id']], implementation() { $.NSWorkspace.sharedWorkspace.openURL($.NSURL.URLWithString(GUIDE_URL)); } },
+    'openGuide:': {
+      types: ['void', ['id']],
+      implementation() {
+        const url = ZH ? 'https://github.com/urusaqqrun/jarvis-voice/blob/main/README.zh-TW.md' : GUIDE_URL;
+        $.NSWorkspace.sharedWorkspace.openURL($.NSURL.URLWithString(url));
+      },
+    },
     'quitApp:': { types: ['void', ['id']], implementation() { quitApp(); } },
     'aiOff:': { types: ['void', ['id']], implementation() { chooseAi(''); } },
     'aiOpenai:': { types: ['void', ['id']], implementation() { chooseAi('openai'); } },
@@ -374,19 +387,19 @@ function startUI() {
   statusItem.setAutosaveName('VoiceDictation');
   const menu = $.NSMenu.alloc.init;
   menu.setAutoenablesItems(false);
-  statusLine = menuItem('啟動中…', null);
+  statusLine = menuItem(t('啟動中…', 'Starting…'), null);
   statusLine.setEnabled(false);
   menu.addItem(statusLine);
   menu.addItem($.NSMenuItem.separatorItem);
-  toggleItem = menuItem('暫停收音', 'toggle:');
+  toggleItem = menuItem(t('暫停收音', 'Pause listening'), 'toggle:');
   menu.addItem(toggleItem);
-  menu.addItem(menuItem('複製上一句', 'copyLast:'));
-  menu.addItem(menuItem('換回原文（上一段 AI 整理前）', 'revert:'));
+  menu.addItem(menuItem(t('複製上一句', 'Copy last sentence'), 'copyLast:'));
+  menu.addItem(menuItem(t('換回原文（上一段 AI 整理前）', 'Revert to original (before AI cleanup)'), 'revert:'));
   menu.addItem($.NSMenuItem.separatorItem);
-  aiMenuItem = menuItem('AI 整理：關', null);
+  aiMenuItem = menuItem(t('AI 整理：關', 'AI cleanup: Off'), null);
   const aiMenu = $.NSMenu.alloc.init;
   aiMenu.setAutoenablesItems(false);
-  aiOffItem = menuItem('關（講完一句直接貼）', 'aiOff:');
+  aiOffItem = menuItem(t('關（講完一句直接貼）', 'Off (paste each sentence as is)'), 'aiOff:');
   aiMenu.addItem(aiOffItem);
   aiMenu.addItem($.NSMenuItem.separatorItem);
   for (const [provider, name] of Object.entries(AI_NAMES)) {
@@ -395,16 +408,16 @@ function startUI() {
   }
   aiMenuItem.setSubmenu(aiMenu);
   menu.addItem(aiMenuItem);
-  autoFocusItem = menuItem('自動找輸入框（游標不在輸入框時）', 'toggleAutoFocus:');
+  autoFocusItem = menuItem(t('自動找輸入框（游標不在輸入框時）', 'Auto-focus (when the cursor isn\'t in a text field)'), 'toggleAutoFocus:');
   menu.addItem(autoFocusItem);
-  commandsItem = menuItem('語音指令', 'toggleCommands:');
+  commandsItem = menuItem(t('語音指令', 'Voice commands'), 'toggleCommands:');
   menu.addItem(commandsItem);
   menu.addItem($.NSMenuItem.separatorItem);
-  menu.addItem(menuItem('編輯專有名詞…', 'openVocabulary:'));
-  menu.addItem(menuItem('編輯設定檔…', 'openConfig:'));
-  menu.addItem(menuItem('說明', 'openGuide:'));
+  menu.addItem(menuItem(t('編輯專有名詞…', 'Edit vocabulary…'), 'openVocabulary:'));
+  menu.addItem(menuItem(t('編輯設定檔…', 'Edit config…'), 'openConfig:'));
+  menu.addItem(menuItem(t('說明', 'Help'), 'openGuide:'));
   menu.addItem($.NSMenuItem.separatorItem);
-  menu.addItem(menuItem('結束 JarvisVoice', 'quitApp:'));
+  menu.addItem(menuItem(t('結束 JarvisVoice', 'Quit JarvisVoice'), 'quitApp:'));
   statusItem.setMenu(menu);
   refreshSettings();
   refresh();
