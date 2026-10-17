@@ -28,7 +28,7 @@ import { createBatchEngine } from './engines/batch.mjs';
 import { createLocalEngine } from './engines/local.mjs';
 import { createRealtimeEngine, openaiConnector, parallelSandboxConnector } from './engines/realtime.mjs';
 import { appendHistory } from './history.mjs';
-import { createDecider, fieldQuestions, intentQuestion } from './decide.mjs';
+import { createDecider, describeElement, fieldQuestions, inFieldIntentQuestion, inFieldVerdict, intentQuestion, referenceQuestion } from './decide.mjs';
 import { createLearner } from './learn.mjs';
 import { rankTargets } from './targeter.mjs';
 import { finishText, isSpeech, withSpacing } from './text.mjs';
@@ -43,7 +43,6 @@ const POLL_MS = 500;
 const SEGMENT_CHECK_MS = 100;
 const HOLD_MS = 60_000; // 寫的時候前景是不收音的 app（例如開會），最多等一分鐘回來再寫
 const MAX_SEGMENT_CHARS = 1500; // 一直講不停太長就先整理這一段
-const FIELD_MIN = 0.5; // 決策器挑輸入框的信心門檻
 const COMMAND_MIN = 0.5; // AI 說是指令時，Jev 也要覺得是的機率
 
 const argv = process.argv.slice(2);
@@ -406,7 +405,7 @@ const decider = createDecider(() => ({ jevKey: config.jev.apiKey, jevModel: conf
 const commandsOn = () => config.commands && aiReady();
 
 // 第三層（輸入）：游標不在輸入框，挑視窗裡要寫的輸入框對焦。上次寫的那個或只有一個就直接用，
-// 其他交給決策器（Jev）挑，沒有決策器就照規則排
+// 其他交給決策器（Jev 或 AI）挑，沒有決策器就照規則排第一的
 async function focusBestField(pid, transcript, ctx) {
   const found = await axCall('targets', { pid });
   if (!found) return false;
@@ -417,20 +416,16 @@ async function focusBestField(pid, transcript, ctx) {
       const started = Date.now();
       const a = await decider.decide({ transcript, app: ctx?.app ?? '', window: found.window?.title ?? '' }, fieldQuestions(list, found.window));
       const pick = list[Number(String(a.target?.choice ?? '').slice(1))];
-      const confidence = a.target?.confidence ?? 0;
-      if (pick && confidence >= FIELD_MIN && (a.obvious?.noul ?? 1) >= 0.3) {
+      if (pick) {
         choice = pick;
-        reason = `${decider.engine()} 挑的，信心 ${confidence.toFixed(2)}，${Date.now() - started} ms`;
-      } else {
-        choice = null;
-        reason = `${decider.engine()} 不確定要寫哪個（信心 ${confidence.toFixed(2)}）`;
+        reason = `${decider.engine()} 挑的，信心 ${(a.target.confidence ?? 0).toFixed(2)}，${Date.now() - started} ms`;
       }
     } catch (err) {
       log(`決策器失敗，改照規則挑：${err.message}`);
     }
   }
   if (!choice) {
-    log(`游標不在輸入框，也沒有自動對焦：${reason}`);
+    log(`游標不在輸入框，${reason}`);
     return false;
   }
   await axCall('focus', { handle: choice.handle });
@@ -440,33 +435,61 @@ async function focusBestField(pid, transcript, ctx) {
 
 const readContext = (front) => (dryPaste || !front.pid ? null : axCall('context', { pid: front.pid, chars: config.ai.contextChars }));
 
-// AI 整理；開了指令模式而且有 Jev，同時問 Jev「這是不是指令」，兩邊都說是才當指令
+// 游標在輸入框時問 Jev：看畫面上有什麼，判斷這句是不是要操作畫面
+async function judgeInField(raw, front, ctx) {
+  const snap = await axCall('elements', { pid: front.pid, limit: 150 }, 3000);
+  const items = (snap?.elements ?? []).filter((e) => !['AXTextField', 'AXTextArea', 'AXComboBox', 'AXSearchField'].includes(e.role)).slice(0, 120);
+  const field = [ctx.field.label, ctx.field.role].filter(Boolean).join('，');
+  const answers = await decider.decide({
+    transcript: raw, app: ctx.app ?? '', window: ctx.window ?? '', field: `${field}（游標在這）`,
+    screen: items.map((e) => describeElement(e, snap?.window)),
+  }, { intent: inFieldIntentQuestion(), target: referenceQuestion(items, snap?.window) });
+  return inFieldVerdict(answers, items);
+}
+
+// AI 整理。開了指令模式而且有 Jev，同時問 Jev（不多花時間）：
+//   游標不在輸入框：AI 和 Jev 都說是指令才算；
+//   游標在輸入框：Jev 看了畫面很確定是要操作畫面才算（這時再請 AI 拆出目標和要搜尋的字）。
+// 沒有 Jev 就照 AI 整理的判斷（游標在輸入框時只有開頭講「指令」才算）
 async function aiEdit(raw, front, ctx) {
   if (!aiReady()) return null;
   if (config.ai.skipApps.includes(front.bundle) || ctx?.field.secure) {
     log('密碼欄或排除的 app，不送 AI，直接貼原稿');
     return null;
   }
-  const field = ctx?.field.editable ? [ctx.field.label, ctx.field.role].filter(Boolean).join('，') : '';
-  // 有 Jev 就跟 AI 整理同時問「這是不是指令」（不多花時間），兩邊都說是才當指令；沒有 Jev 就照 AI 整理的判斷
-  const intent = commandsOn() && config.jev.apiKey
-    ? decider.decide({ transcript: raw, app: ctx?.app ?? '', window: ctx?.window ?? '', field }, { intent: intentQuestion() })
-      .then((a) => a.intent?.probabilities?.command ?? null, (err) => { log(`Jev 判斷指令失敗：${err.message}`); return null; })
-    : null;
+  const inField = !!ctx?.field.editable;
+  const field = inField ? [ctx.field.label, ctx.field.role].filter(Boolean).join('，') : '';
+  const jev = commandsOn() && config.jev.apiKey && front.pid;
+  const judge = !jev ? null
+    : inField
+      ? judgeInField(raw, front, ctx).catch((err) => { log(`Jev 判斷指令失敗：${err.message}`); return null; })
+      : decider.decide({ transcript: raw, app: ctx?.app ?? '', window: ctx?.window ?? '', field }, { intent: intentQuestion() })
+        .then((a) => ({ command: a.intent?.probabilities?.command ?? 0, named: null, isCommand: (a.intent?.probabilities?.command ?? 0) >= COMMAND_MIN }),
+          (err) => { log(`Jev 判斷指令失敗：${err.message}`); return null; });
+  const edit = (transcript) => editSegment({
+    ...aiSettings(),
+    transcript,
+    context: { app: ctx?.app, bundle: front.bundle, window: ctx?.window, url: ctx?.url, field: ctx?.field },
+    style: styleFor(config, front.bundle, ctx?.url),
+    vocabulary: config.openai.keywords,
+    commands: commandsOn(),
+  });
   try {
-    const result = await editSegment({
-      ...aiSettings(),
-      transcript: raw,
-      context: { app: ctx?.app, bundle: front.bundle, window: ctx?.window, url: ctx?.url, field: ctx?.field },
-      style: styleFor(config, front.bundle, ctx?.url),
-      vocabulary: config.openai.keywords,
-      commands: commandsOn(),
-    });
-    const commandOdds = intent ? await intent : null;
-    log(`AI 整理（${result.model}，${result.ms} ms，${result.mode}）：${result.mode === 'command' ? result.goal : result.text || '（無）'}${commandOdds === null ? '' : `；Jev 判斷是指令的機率 ${commandOdds.toFixed(2)}`}`);
-    if (result.mode === 'command' && commandOdds !== null && commandOdds < COMMAND_MIN) {
+    let result = await edit(raw);
+    const verdict = judge ? await judge : null;
+    const jevNote = verdict ? `；Jev：是指令的機率 ${verdict.command.toFixed(2)}${verdict.named ? `，講到「${verdict.named.label}」` : ''}` : '';
+    log(`AI 整理（${result.model}，${result.ms} ms，${result.mode}）：${result.mode === 'command' ? result.goal : result.text || '（無）'}${jevNote}`);
+    if (result.mode === 'command' && verdict && !verdict.isCommand && !inField) {
       log('AI 說是指令、Jev 說不是：當成要打的字，貼原稿');
       return null;
+    }
+    if (result.mode !== 'command' && inField && verdict?.isCommand) {
+      // Jev 看了畫面很確定是要操作：照「指令，……」再請 AI 拆一次目標和要搜尋的字
+      const forced = await edit(`指令，${raw}`);
+      if (forced.mode === 'command') {
+        log(`游標在輸入框，但 Jev 確定是要操作畫面：當成指令（${forced.goal}）`);
+        result = forced;
+      }
     }
     return result;
   } catch (err) {
@@ -550,6 +573,11 @@ async function deliver(item, front) {
   if (result?.mode === 'delete_last') { await replaceLast(front, '', '刪掉剛剛那段'); return ''; }
   if (result?.mode === 'revert_last') {
     if (lastInserted?.ai) await replaceLast(front, withSpacing(lastInserted.raw), '換回原文');
+    return '';
+  }
+  if (result?.mode === 'insert' && !result.text.trim()) {
+    writeLast(raw);
+    log('AI 整理後沒有要寫的字（只有贅字或雜音），不寫：', raw);
     return '';
   }
   if (!inField) {

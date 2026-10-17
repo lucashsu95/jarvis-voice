@@ -28,7 +28,7 @@ const RULES = `你是語音輸入的編輯器。使用者用講的打字，<tran
 10. 語氣照 <style>；沒寫就保持原本的語氣，只做整理。
 
 mode：
-- insert：一般情況，text 是要插入的字。
+- insert：一般情況，text 是要插入的字。整段只有贅字、雜音或聽不出意思的片段（例如「嗯」「value.」），text 給空字串。
 - replace_selection：只有在 <selected> 有字，而且原稿明顯是在對選取的字下指令（例如「改正式一點」「縮短」「翻成英文」「改成條列」「修正錯字」）時才用；text 是改好的整段文字，用來取代選取。
 - delete_last：原稿只是「刪掉剛剛那句」「剛剛那句不要」這類指令；text 給空字串。
 - revert_last：原稿只是「換回原文」「不要整理」「用原本的」這類指令；text 給空字串。
@@ -80,7 +80,8 @@ export function parseResult(raw, { commands = false } = {}) {
   try { body = JSON.parse(match[0]); } catch { return null; }
   if (!MODES.includes(body?.mode) || typeof body.text !== 'string') return null;
   if (body.mode === 'command' && !commands) return null;
-  if ((body.mode === 'insert' || body.mode === 'replace_selection') && !body.text.trim()) return null;
+  // insert 給空字串＝整段只有贅字或雜音，不用寫；replace_selection 不能是空的
+  if (body.mode === 'replace_selection' && !body.text.trim()) return null;
   if (body.mode === 'command') {
     if (!String(body.goal ?? '').trim()) return null;
     return { mode: 'command', text: String(body.text ?? ''), goal: String(body.goal), app: String(body.app ?? '') };

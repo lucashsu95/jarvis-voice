@@ -81,13 +81,39 @@ const ROLE_NAMES = {
 
 export const describeElement = (e, win) => `${ROLE_NAMES[e.role] ?? e.role}${e.subrole === 'AXSearchField' ? '（搜尋框）' : ''}「${e.label || '沒有標籤'}」（${where(e, win)}）${e.focused ? '，游標在這' : ''}`;
 
+// 游標在輸入框裡也可能是指令（Claude、聊天 app 的游標幾乎都停在輸入框）：把畫面上的東西一起給 Jev 看
+export const inFieldIntentQuestion = () => ({
+  type: 'choice',
+  instructions: '游標在輸入框 `field` 裡。使用者講了 `transcript`。這是要打進這個輸入框的字（dictation），還是要電腦操作 `screen` 上的東西（command）？',
+  criteria: {
+    dictation: '要打進輸入框的字：訊息、問題、給 AI 的提示、抱怨或描述（就算句子裡有「切到」「打開」這些字，只要是在描述或討論，而不是叫電腦現在去做，就算這個）',
+    command: '叫電腦現在去操作畫面：切到、打開、點、進到、回到 `screen` 上的某個項目（通常會講出那個項目的名字），或搜尋某個東西',
+  },
+});
+
+// `transcript` 講到的是畫面上哪一個（沒講到就 none）
+export function referenceQuestion(items, win) {
+  const criteria = { none: '畫面上沒有使用者講到的東西' };
+  items.forEach((e, i) => { criteria[`e${i}`] = describeElement(e, win); });
+  return { type: 'choice', instructions: '`transcript` 講到的是 `screen` 上的哪一個項目？沒有講到就選 none', criteria };
+}
+
+// 游標在輸入框時算不算指令：Jev 很確定（≥ 0.9），或滿確定（≥ 0.75）而且講到畫面上的某個東西
+export const IN_FIELD_SURE = 0.9;
+export const IN_FIELD_NAMED = 0.75;
+export function inFieldVerdict(answers, items) {
+  const command = answers.intent?.probabilities?.command ?? 0;
+  const t = answers.target;
+  const named = !!t && t.choice !== 'none' && (t.confidence ?? 0) >= 0.5 ? items[Number(String(t.choice).slice(1))] ?? null : null;
+  return { command, named, isCommand: command >= IN_FIELD_SURE || (command >= IN_FIELD_NAMED && !!named) };
+}
+
 // 游標不在輸入框：這段字要寫進哪個框
 export function fieldQuestions(candidates, win) {
   const criteria = {};
   candidates.forEach((c, i) => { criteria[`e${i}`] = describeElement(c, win); });
   return {
     target: { type: 'choice', instructions: '使用者講了 `transcript`，游標不在輸入框。這段字最該寫進哪個輸入框？', criteria },
-    obvious: { type: 'noul', instructions: '這個視窗裡有明顯就是要寫這段字的輸入框嗎？' },
   };
 }
 
@@ -98,15 +124,19 @@ export function stepQuestions(elements, win) {
   return {
     action: {
       type: 'choice',
-      instructions: '要達成 `goal`，看 `screen`（目前畫面上可以操作的東西）和 `done_steps`（已經做過的步驟），下一步要做什麼？',
+      instructions: '要達成 `goal`，看 `screen`（目前畫面上可以操作的東西）和 `done_steps`（已經做過的步驟），下一步要做什麼？要找的東西不在 `screen` 上時，先用搜尋：有搜尋框就填 `text`，沒有就點「搜尋／Search」按鈕把搜尋框叫出來。',
       criteria: {
-        click: '點畫面上的某個按鈕、連結、分頁或清單項目',
+        click: '點畫面上的某個按鈕、連結、分頁或清單項目（包括把搜尋框叫出來的「搜尋／Search」按鈕）',
         fill: '在某個輸入框（多半是搜尋框）填入 `text`',
         enter: '在剛填好字的輸入框按 Enter（送出搜尋）',
         done: '目標已經達成：畫面已經是使用者要的',
         stuck: '這個畫面做不到，或不知道下一步',
       },
     },
-    target: { type: 'choice', instructions: '要點或要填的是哪一個？（action 是 click 或 fill 時才用得到）', criteria },
+    target: {
+      type: 'choice',
+      instructions: '要點或要填的是哪一個？（action 是 click 或 fill 時才用得到）名字要對得上 `goal` 講的那個項目；要找的項目不在 `screen` 上時，選搜尋框或「搜尋／Search」按鈕。',
+      criteria,
+    },
   };
 }

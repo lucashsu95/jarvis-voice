@@ -59,10 +59,11 @@ test('AI 整理的提示：上下文都放進去、游標欄位一定有；開�
   assert.match(empty.user, /<field><\/field>/);
 });
 
-test('AI 回的 JSON：格式不對、空字、沒開指令模式卻回 command，都當沒回', () => {
+test('AI 回的 JSON：格式不對、改寫選取卻給空字、沒開指令模式卻回 command，都當沒回；insert 空字＝只有贅字不用寫', () => {
   assert.deepEqual(parseResult('{"mode":"insert","text":"好"}'), { mode: 'insert', text: '好' });
   assert.deepEqual(parseResult('前言 {"mode":"delete_last","text":"x"} 後記'), { mode: 'delete_last', text: '' });
-  assert.equal(parseResult('{"mode":"insert","text":"  "}'), null);
+  assert.deepEqual(parseResult('{"mode":"insert","text":""}'), { mode: 'insert', text: '' });
+  assert.equal(parseResult('{"mode":"replace_selection","text":" "}'), null);
   assert.equal(parseResult('{"mode":"answer","text":"2"}'), null);
   assert.equal(parseResult('不是 JSON'), null);
   const command = '{"mode":"command","text":"台積電","goal":"打開台積電個股頁","app":""}';
@@ -137,32 +138,31 @@ test('設定：AI 各家的 key 從 keys／keyFiles／keyCommands／環境變數
 const testWindow = { x: 200, y: 330, w: 560, h: 452, title: '測試' };
 const field = (label, role, y, extra = {}) => ({ handle: y, role, subrole: '', label, x: 219, y, w: 522, h: role === 'AXTextArea' ? 250 : 28, enabled: true, ...extra });
 
-test('找輸入框：搜尋框、密碼框不選；上次寫的優先；只有一個就用；分不出高下就不動', () => {
+test('找輸入框（沒有決策器時的規則）：所有輸入框都能選；上次寫的優先；只有一個就用；一定挑一個', () => {
   const search = field('搜尋', 'AXTextField', 385, { subrole: 'AXSearchField' });
   const subject = field('主旨', 'AXTextField', 425);
   const secret = field('密碼', 'AXTextField', 465, { subrole: 'AXSecureTextField' });
   const body = field('訊息', 'AXTextArea', 512);
   const all = [search, subject, secret, body];
-  assert.equal(rankTargets({ candidates: all, window: testWindow }).choice.label, '訊息');
+  const ranked = rankTargets({ candidates: all, window: testWindow });
+  assert.equal(ranked.choice.label, '訊息');
+  assert.equal(ranked.list.length, 4); // 搜尋框、密碼框也在候選裡，交給決策器挑
   const again = rankTargets({ candidates: all, window: testWindow, remembered: { role: 'AXTextField', label: '主旨' } });
   assert.equal(again.choice.label, '主旨');
   assert.equal(again.sure, true);
-  assert.equal(rankTargets({ candidates: [search, secret, subject], window: testWindow }).choice.label, '主旨');
+  assert.equal(rankTargets({ candidates: [search], window: testWindow }).choice.label, '搜尋');
   const twins = rankTargets({ candidates: [field('A', 'AXTextField', 400), field('B', 'AXTextField', 410)], window: testWindow });
-  assert.equal(twins.choice, null);
-  assert.match(twins.reason, /分不出/);
-  assert.equal(rankTargets({ candidates: [search, secret], window: testWindow }).choice, null);
-  // Claude 的 Terminal input 只有 7 點寬，不算
-  const claude = rankTargets({ candidates: [field('Prompt', 'AXTextArea', 831), { ...field('Terminal input', 'AXTextField', 83), w: 7 }] });
-  assert.equal(claude.choice.label, 'Prompt');
+  assert.ok(twins.choice, '分不出高下也要挑一個');
+  assert.equal(rankTargets({ candidates: [], window: testWindow }).choice, null);
+  assert.equal(rankTargets({ candidates: [{ ...body, enabled: false }, { ...subject, w: 0 }] }).choice, null); // 停用的、看不到的寫不進去
 });
 
 test('決策器：有 Jev key 打 /v1/systemone；沒有就把同樣的問題交給 AI，答案不在選項裡的丟掉', async () => {
   const server = await fakeJson((call) => {
     if (call.url.includes('systemone')) {
-      return { body: { model: 'jev-1.13.0', answers: { target: { type: 'choice', choice: 'e1', confidence: 0.8, probabilities: { e0: 0.2, e1: 0.8 } }, obvious: { type: 'noul', noul: 0.9 } } } };
+      return { body: { model: 'jev-1.13.0', answers: { target: { type: 'choice', choice: 'e1', confidence: 0.8, probabilities: { e0: 0.2, e1: 0.8 } } } } };
     }
-    return chatReply({ answers: { target: { choice: 'e9', confidence: 0.9 }, obvious: { noul: 0.7 } } });
+    return chatReply({ answers: { target: { choice: 'e9', confidence: 0.9 }, extra: { noul: 0.7 } } });
   });
   process.env.VOICE_DICTATION_JEV_URL = `${server.url}/v1/systemone`;
   process.env.VOICE_DICTATION_OPENAI_CHAT_URL = `${server.url}/openai`;
@@ -178,13 +178,12 @@ test('決策器：有 Jev key 打 /v1/systemone；沒有就把同樣的問題交
     assert.equal(sent.headers.authorization, 'Bearer ts-1');
     assert.equal(sent.body.model, 'jev-latest');
     assert.equal(sent.body.questions.target.type, 'choice');
-    assert.equal(sent.body.questions.obvious.type, 'noul');
+    assert.deepEqual(Object.keys(sent.body.questions), ['target']);
     assert.deepEqual(sent.body.state, { transcript: '改到四點' });
     const llm = createDecider(() => ({ jevKey: '', ai: { provider: 'openai', apiKey: 'sk' } }));
     assert.equal(llm.engine(), 'AI');
     const b = await llm.decide({ transcript: '改到四點' }, questions);
     assert.equal(b.target, undefined); // e9 不在選項裡
-    assert.equal(b.obvious.noul, 0.7);
     await assert.rejects(createDecider(() => ({ jevKey: '', ai: null })).decide({}, questions), /做不了決策/);
   } finally {
     server.close();
@@ -393,4 +392,17 @@ test('設定檢查 ai-check：照設定檔實際打 AI 和決策器；沒有 key
   } finally {
     server.close();
   }
+});
+
+test('游標在輸入框時算不算指令：Jev 很確定，或滿確定而且講到畫面上的東西', async () => {
+  const { inFieldVerdict } = await import('../bin/decide.mjs');
+  const items = [el(1, 'AXButton', 'PM C'), el(2, 'AXButton', 'New session')];
+  const answer = (p, choice, confidence = 0.9) => ({ intent: { probabilities: { command: p } }, target: { choice, confidence } });
+  assert.equal(inFieldVerdict(answer(0.92, 'none'), items).isCommand, true); // 「打開設定」：很確定
+  const named = inFieldVerdict(answer(0.8, 'e0'), items);
+  assert.equal(named.isCommand, true); // 「回到 PM C」
+  assert.equal(named.named.label, 'PM C');
+  assert.equal(inFieldVerdict(answer(0.82, 'none'), items).isCommand, false); // 「你切到另一個分支再跑一次測試」
+  assert.equal(inFieldVerdict(answer(0.63, 'e1'), items).isCommand, false);
+  assert.equal(inFieldVerdict(answer(0.8, 'e0', 0.3), items).isCommand, false); // 講到哪個不確定
 });
