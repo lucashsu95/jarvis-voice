@@ -121,7 +121,7 @@ export function createRealtimeEngine({ connector, onFinal, onError, log }) {
 }
 
 // OpenAI 直連：跟平行沙盒 control 送給 OpenAI 的設定一樣（internal/boxes/transcription.go 的 sessionUpdate）。
-export function openaiConnector({ apiKey, model, language }) {
+export function openaiConnector({ apiKey, model = 'gpt-live-transcribe', language }) {
   return async () => {
     if (!apiKey) throw new Error('沒有 OpenAI API key（設定檔 openai.apiKey 或環境變數 OPENAI_API_KEY）');
     const transcription = { model, delay: 'low' };

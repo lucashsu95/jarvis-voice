@@ -6,6 +6,7 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { createServer } from 'node:http';
 import { test } from 'node:test';
 import { WebSocketServer } from 'ws';
 
@@ -13,7 +14,8 @@ const stateDir = mkdtempSync(join(tmpdir(), 'voice-dictation-test-'));
 process.env.VOICE_DICTATION_STATE_DIR = stateDir;
 
 const { finishText, isSpeech, withSpacing } = await import('../bin/text.mjs');
-const { loadConfig, DEFAULT_MODEL } = await import('../bin/config.mjs');
+const { loadConfig, DEFAULT_MODEL, isLiveModel } = await import('../bin/config.mjs');
+const { createBatchEngine, wavFromPcm16 } = await import('../bin/engines/batch.mjs');
 const { createRealtimeEngine, openaiConnector } = await import('../bin/engines/realtime.mjs');
 const { createLocalEngine } = await import('../bin/engines/local.mjs');
 const { findFfmpeg } = await import('../bin/common.mjs');
@@ -44,6 +46,114 @@ test('設定檔：沒寫的照預設，engine 寫錯退回本機並說明', () =
   assert.ok(config.local.model.endsWith(DEFAULT_MODEL));
   writeFileSync(join(stateDir, 'config.json'), '{ 壞掉');
   assert.match(loadConfig().error, /設定檔讀不懂/);
+});
+
+test('OpenAI：預設一般轉寫；key 可以放在 .env 檔；模型名稱決定一般或即時', () => {
+  const envFile = join(stateDir, 'openai.env');
+  writeFileSync(envFile, 'OTHER=1\nexport OPENAI_API_KEY="sk-from-file"\n');
+  writeFileSync(join(stateDir, 'config.json'), JSON.stringify({ engine: 'openai', openai: { apiKeyFile: envFile } }));
+  const { config } = loadConfig();
+  assert.equal(config.openai.model, 'gpt-transcribe');
+  assert.equal(config.openai.apiKey, 'sk-from-file');
+  assert.equal(isLiveModel('gpt-transcribe'), false);
+  assert.equal(isLiveModel('gpt-live-transcribe'), true);
+  writeFileSync(join(stateDir, 'config.json'), JSON.stringify({ engine: 'openai', openai: { apiKeyFile: join(stateDir, 'nope.env') } }));
+  assert.match(loadConfig().error, /讀不到 openai.apiKeyFile/);
+});
+
+test('WAV 檔頭：24kHz 單聲道 16-bit', () => {
+  const wav = wavFromPcm16(Buffer.alloc(4800));
+  assert.equal(wav.toString('ascii', 0, 4), 'RIFF');
+  assert.equal(wav.toString('ascii', 8, 12), 'WAVE');
+  assert.equal(wav.readUInt32LE(24), 24000);
+  assert.equal(wav.readUInt16LE(22), 1);
+  assert.equal(wav.readUInt32LE(40), 4800);
+  assert.equal(wav.length, 4844);
+});
+
+// 假的 /v1/audio/transcriptions：照 handler 回應，記下每次上傳的欄位
+async function fakeTranscriptions(handler) {
+  const calls = [];
+  const server = createServer(async (req, res) => {
+    const chunks = [];
+    for await (const c of req) chunks.push(c);
+    const form = await new Response(Buffer.concat(chunks), { headers: { 'content-type': req.headers['content-type'] } }).formData();
+    const file = form.get('file');
+    const call = {
+      auth: req.headers.authorization,
+      model: form.get('model'),
+      language: form.get('language'),
+      prompt: form.get('prompt'),
+      bytes: Buffer.from(await file.arrayBuffer()),
+    };
+    calls.push(call);
+    const { status = 200, body, delay = 0 } = handler(call, calls.length);
+    setTimeout(() => { res.writeHead(status, { 'content-type': 'application/json' }); res.end(JSON.stringify(body)); }, delay);
+  });
+  await new Promise((r) => server.listen(0, '127.0.0.1', r));
+  process.env.VOICE_DICTATION_OPENAI_HTTP_URL = `http://127.0.0.1:${server.address().port}/v1/audio/transcriptions`;
+  return { calls, close: () => { delete process.env.VOICE_DICTATION_OPENAI_HTTP_URL; server.close(); } };
+}
+
+const speech = (seconds, value) => Buffer.alloc(Math.round(24000 * 2 * seconds), value);
+const waitFor = async (check) => { for (let i = 0; i < 100 && !check(); i += 1) await new Promise((r) => setTimeout(r, 20)); };
+
+test('OpenAI 一般轉寫：整句包成 WAV 上傳，先講的先貼（即使晚回來）', async () => {
+  const server = await fakeTranscriptions((call, n) => (n === 1
+    ? { body: { text: '第一句' }, delay: 300 }
+    : { body: { text: '第二句' } }));
+  try {
+    const finals = [];
+    const errors = [];
+    const engine = createBatchEngine({
+      apiKey: 'sk-test', model: 'gpt-transcribe', language: 'zh', prompt: 'CubeLV、平行沙盒',
+      onFinal: (t) => finals.push(t), onError: (m) => errors.push(m), log: () => {},
+    });
+    engine.append(speech(0.5, 1));
+    engine.commit();
+    engine.append(speech(0.6, 2));
+    engine.commit();
+    await waitFor(() => finals.length === 2);
+    assert.deepEqual(errors, []);
+    assert.deepEqual(finals, ['第一句', '第二句']);
+    assert.equal(server.calls[0].auth, 'Bearer sk-test');
+    assert.equal(server.calls[0].model, 'gpt-transcribe');
+    assert.equal(server.calls[0].language, 'zh');
+    assert.equal(server.calls[0].prompt, 'CubeLV、平行沙盒');
+    assert.equal(server.calls[0].bytes.toString('ascii', 0, 4), 'RIFF');
+    assert.equal(server.calls[0].bytes.length, 44 + 24000);
+    assert.equal(engine.busy(), false);
+  } finally {
+    server.close();
+  }
+});
+
+test('OpenAI 一般轉寫：伺服器錯誤重試一次；key 錯不重試、直接說原因；太短的不送', async () => {
+  const server = await fakeTranscriptions((call, n) => {
+    if (call.auth === 'Bearer sk-bad') return { status: 401, body: { error: { message: 'Incorrect API key provided' } } };
+    return n === 1 ? { status: 500, body: { error: { message: 'boom' } } } : { body: { text: '重試成功' } };
+  });
+  try {
+    const finals = [];
+    const errors = [];
+    const ok = createBatchEngine({ apiKey: 'sk-test', onFinal: (t) => finals.push(t), onError: (m) => errors.push(m), log: () => {} });
+    ok.append(speech(0.05, 1)); // 太短，不送
+    ok.commit();
+    ok.append(speech(0.5, 1));
+    ok.commit();
+    await waitFor(() => finals.length === 1);
+    assert.deepEqual(finals, ['重試成功']);
+    assert.equal(server.calls.length, 2);
+
+    const bad = createBatchEngine({ apiKey: 'sk-bad', onFinal: (t) => finals.push(t), onError: (m) => errors.push(m), log: () => {} });
+    bad.append(speech(0.5, 1));
+    bad.commit();
+    await waitFor(() => errors.length === 1);
+    assert.match(errors[0], /HTTP 401.*Incorrect API key/);
+    assert.equal(server.calls.length, 3);
+  } finally {
+    server.close();
+  }
 });
 
 test('OpenAI 直連：帶自己的 key、先送 session 設定，再送音訊與 commit，收到定稿', async () => {

@@ -2,7 +2,7 @@
 # Claude Code 語音自動輸入：安裝或更新。
 #   ./install.sh                 用設定檔現在的引擎（第一次裝是 local）
 #   ./install.sh local           本機辨識（免費，聲音不離開這台電腦）
-#   ./install.sh openai          自己的 OpenAI key（OPENAI_API_KEY 有設就順手寫進設定檔）
+#   ./install.sh openai          自己的 OpenAI key，預設一般轉寫 gpt-transcribe（OPENAI_API_KEY 有設就順手寫進設定檔）
 #   ./install.sh parallelsandbox 平行沙盒帳號
 # 重跑會：裝套件、補模型、改引擎、把 plugin 註冊進 Claude Code、重開常駐程式。
 set -euo pipefail
@@ -74,8 +74,11 @@ if (engine === 'openai' && process.env.OPENAI_API_KEY && !config.openai?.apiKey)
 fs.writeFileSync(file, `${JSON.stringify(config, null, 2)}\n`, { mode: 0o600 });
 fs.chmodSync(file, 0o600);
 EOF
-if [[ "$ENGINE" == openai ]] && ! grep -q '"apiKey": "sk-' "$CONFIG"; then
-  note "還沒有 OpenAI key：在 $CONFIG 加上 \"openai\": { \"apiKey\": \"sk-...\" }"
+if [[ "$ENGINE" == openai ]] && ! grep -q '"apiKey": "sk-\|"apiKeyFile"' "$CONFIG" && [[ -z "${OPENAI_API_KEY:-}" ]]; then
+  note "還沒有 OpenAI key：在 $CONFIG 的 openai 裡加上 \"apiKey\": \"sk-...\"，或 \"apiKeyFile\": \"放 key 的檔案路徑\""
+fi
+if [[ "$ENGINE" == openai ]] && ! grep -q '"prompt"' "$CONFIG"; then
+  note "建議在 openai 裡加上 \"prompt\"，寫你常講的專有名詞，準度會明顯變好（見 README）。"
 fi
 
 say "註冊到 Claude Code"

@@ -3,7 +3,8 @@
 // 就把定稿貼進目前游標所在的輸入框——你在哪個 session，字就進哪個 session；只貼不送出。
 // 不在最前面或暫停時關麥克風。整台電腦同時只跑一個（鎖檔），由各 session 的 mod 輪流確保有人在跑。
 //
-// 轉寫引擎看設定檔（bin/config.mjs）：local 本機 SenseVoice、openai 自己的 key、parallelsandbox。
+// 轉寫引擎看設定檔（bin/config.mjs）：local 本機 SenseVoice、openai 自己的 key（預設 gpt-transcribe 一般轉寫，
+// 也可以選 gpt-live-transcribe 即時）、parallelsandbox。
 // 設定檔改了會自動換引擎。狀態寫在 status.json 給狀態列讀；有 paused 檔就暫停。
 // stdout 每行一個 JSON（state、pasted）。
 // 測試選項：--file <音檔> 用音檔代替麥克風、讀完收尾結束；--dry-paste 只印不貼；--always 不看前景 app；--hud 測試時也顯示標籤。
@@ -13,7 +14,8 @@ import { closeSync, existsSync, mkdirSync, openSync, readFileSync, renameSync, u
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { AudioTurnDetector, BATCH_BYTES, SAMPLE_RATE, findFfmpeg } from './common.mjs';
-import { STATE_DIR, configMtime, loadConfig } from './config.mjs';
+import { STATE_DIR, configMtime, isLiveModel, loadConfig } from './config.mjs';
+import { createBatchEngine } from './engines/batch.mjs';
 import { createLocalEngine } from './engines/local.mjs';
 import { createRealtimeEngine, openaiConnector, parallelSandboxConnector } from './engines/realtime.mjs';
 import { finishText, isSpeech, withSpacing } from './text.mjs';
@@ -129,9 +131,10 @@ function startEngine() {
     },
   };
   if (config.engine === 'local') engine = createLocalEngine({ ...config.local, ...callbacks });
-  else if (config.engine === 'openai') engine = createRealtimeEngine({ connector: openaiConnector(config.openai), ...callbacks });
+  else if (config.engine === 'openai' && isLiveModel(config.openai.model)) engine = createRealtimeEngine({ connector: openaiConnector(config.openai), ...callbacks });
+  else if (config.engine === 'openai') engine = createBatchEngine({ ...config.openai, ...callbacks });
   else engine = createRealtimeEngine({ connector: parallelSandboxConnector(config.parallelsandbox), ...callbacks });
-  log(`轉寫引擎：${config.engine}`);
+  log(`轉寫引擎：${config.engine}${config.engine === 'openai' ? `（${config.openai.model}）` : ''}`);
   if (configError) setError(configError);
 }
 

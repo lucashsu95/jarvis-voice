@@ -5,7 +5,7 @@
 - **自動收音、自動切句**：本機判斷有沒有人聲，安靜時什麼都不送。Claude 不在最前面時麥克風直接關掉。
 - **三種轉寫引擎，隨時可換**
   - `local`（預設）：本機跑 [SenseVoice-Small](https://github.com/FunAudioLLM/SenseVoice)，免費，聲音不離開你的電腦。
-  - `openai`：用你自己的 OpenAI API key 直連 OpenAI 即時轉寫。
+  - `openai`：用你自己的 OpenAI API key。預設是一般轉寫 `gpt-transcribe`，每講完一句就整句送出；也可以改用即時轉寫 `gpt-live-transcribe`。
   - `parallelsandbox`：用[平行沙盒](https://parallelsandbox.com)帳號的轉寫。
 - **錄音標示**：Claude 視窗標題列正中間會浮一個小標籤，顯示「錄音中」「說話中」「已貼上」；Claude 不在最前面時收起來。
 - **狀態列**：每個 session 的輸入框上方有一行狀態（用哪個引擎、聽著還是待命），可以一鍵暫停或繼續。
@@ -40,7 +40,7 @@ cd ~/.claude-voice-dictation
 
 ```bash
 ./install.sh local             # 本機辨識
-./install.sh openai            # 自己的 OpenAI key（有設 OPENAI_API_KEY 會順手寫進設定檔）
+./install.sh openai            # 自己的 OpenAI key（有設 OPENAI_API_KEY 會順手寫進設定檔），預設一般轉寫
 ./install.sh parallelsandbox   # 平行沙盒
 ```
 
@@ -57,7 +57,12 @@ cd ~/.claude-voice-dictation
   "output": "traditional",
   "replacements": { "部屬": "部署", "Cube LV": "CubeLV" },
   "local": { "language": "auto", "threads": 2 },
-  "openai": { "apiKey": "sk-...", "model": "gpt-live-transcribe", "language": "" },
+  "openai": {
+    "apiKey": "sk-...",
+    "model": "gpt-transcribe",
+    "language": "",
+    "prompt": "軟體開發對話，常出現：Claude Code、session、build、commit、push、部署、dev"
+  },
   "parallelsandbox": { "apiKey": "" }
 }
 ```
@@ -69,8 +74,11 @@ cd ~/.claude-voice-dictation
 | `output` | `traditional`（台灣正體）、`simplified`、`original` |
 | `replacements` | 轉出來的字固定替換，給常錯的專有名詞用 |
 | `local.language` | `auto` 或 `zh`、`en`、`yue`、`ja`、`ko`；中英夾雜建議用 `auto` |
-| `openai.apiKey` | 沒寫就讀環境變數 `OPENAI_API_KEY` |
+| `openai.model` | `gpt-transcribe`（預設，一般轉寫，整句送出）或 `gpt-live-transcribe`（即時轉寫） |
+| `openai.apiKey` | 沒寫就看 `openai.apiKeyFile`，再沒有就讀環境變數 `OPENAI_API_KEY` |
+| `openai.apiKeyFile` | key 放在別的檔案時填路徑（整個檔案就是 key，或含 `OPENAI_API_KEY=` 的 .env），不用把 key 複製進設定檔 |
 | `openai.language` | 指定辨識語言（例如 `zh`），空白讓模型自己判斷 |
+| `openai.prompt` | 給一般轉寫的提示，寫上你常講的專有名詞，準度會明顯變好（見下方辨識率比較） |
 | `parallelsandbox.apiKey` | 沒寫就讀 `~/.claude.json` 裡 parallelsandbox MCP 的 key |
 
 想暫停，按狀態列的「暫停」，或建立 `~/.claude/voice-dictation/paused` 這個檔案；刪掉這個檔案就繼續收音。
@@ -80,12 +88,25 @@ cd ~/.claude-voice-dictation
 | 引擎 | 費用 | 聲音送去哪 |
 |---|---|---|
 | `local` | 免費 | 不離開你的電腦 |
-| `openai` | 照實際講話的時間計費，記在你自己的 OpenAI 帳號 | OpenAI |
+| `openai` | 照實際講話的時間計費，記在你自己的 OpenAI 帳號：`gpt-transcribe` 每分鐘 0.0045 美元，`gpt-live-transcribe` 每分鐘 0.017 美元 | OpenAI |
 | `parallelsandbox` | 依平行沙盒的方案 | 平行沙盒，再轉給 OpenAI |
+
+以一天實際講話 1 小時、一個月 22 個工作天估算：`gpt-transcribe` 一個月約 7.4 美元，`gpt-live-transcribe` 約 28 美元（每句前後會多帶約 1.25 秒的空白，已算進去）。
 
 不管用哪個引擎，只有判定是人聲的片段才會送去轉寫。不過人聲判斷的門檻不高：Claude 在最前面時，旁邊有人講話、你在開會、或在放影片和音樂，也可能被送出去，轉出來的字還會貼進輸入框。這些時候請按暫停，或切到別的 app。
 
 ## 辨識率參考
+
+用 macOS 合成的台灣中文語音（8 句，含中英夾雜的開發用語）實測三種引擎：
+
+| 引擎 | 整句全對 | 純中文句字錯誤率 | 每句耗時 |
+|---|---|---|---|
+| `openai` `gpt-transcribe`＋`prompt` 專有名詞提示 | 6/8 | 0% | 約 0.6–1.3 秒 |
+| `openai` `gpt-transcribe` | 5/8 | 0% | 約 0.6–1.3 秒 |
+| `openai` `gpt-live-transcribe` | 4/8 | 4.4% | 邊講邊轉 |
+| `local` SenseVoice-Small | 4/8 | 2.9% | 約 0.1–0.5 秒 |
+
+錯得最多的是英文技術詞（dev、e2e），這部分合成語音本身就念得不準，真人講話的結果會不一樣。準度最重要就用 `openai` 一般轉寫並填 `prompt`；要免費、要離線就用 `local`。
 
 本機引擎 SenseVoice-Small 在 SenseVoice 論文公布的字錯誤率（越低越好）：
 
@@ -119,7 +140,7 @@ cd ~/.claude-voice-dictation
 
 - `hooks/register.tsx`：Claude Code 的 mod（function hooks），每個 session 載入一份。它負責確認常駐程式在跑（沒有就帶起來），並在輸入框上方畫狀態列。
 - `bin/listen.mjs`：常駐程式，整台電腦只跑一份（用鎖檔控制）。它看哪個 app 在最前面，用 ffmpeg 收音、在本機切句，交給轉寫引擎，再把定稿交給 `bin/paste.js`。
-- `bin/engines/`：`local.mjs`（sherpa-onnx 跑 SenseVoice）、`realtime.mjs`（OpenAI Realtime 轉寫，直連或經平行沙盒）。
+- `bin/engines/`：`local.mjs`（sherpa-onnx 跑 SenseVoice）、`batch.mjs`（OpenAI 一般轉寫，整句上傳）、`realtime.mjs`（OpenAI Realtime 即時轉寫，直連或經平行沙盒）。
 - `bin/paste.js`：先暫存剪貼簿，放進字後送 Cmd+V，再把剪貼簿還原。
 - `bin/hud.js`：錄音標籤，是一個不搶焦點、不擋點擊的浮動小視窗。
 

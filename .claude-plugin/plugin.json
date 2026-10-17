@@ -1,6 +1,6 @@
 {
   "name": "voice-dictation",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "語音自動輸入：Claude 在最前面時自動收音，講完一句就貼進游標所在的輸入框，不自動送出；可用本機辨識、OpenAI 或平行沙盒",
   "author": { "name": "urusa", "url": "https://github.com/urusaqqrun" },
   "homepage": "https://github.com/urusaqqrun/claude-voice-dictation",
