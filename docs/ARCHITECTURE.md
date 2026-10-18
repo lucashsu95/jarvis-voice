@@ -138,13 +138,20 @@ LINE 這類 app 輔助使用只讀得到搜尋框和訊息框（實測 3 個元�
 
 ## 共用核心（`core/`）：Mac 小程式、CubeLV、平行沙盒共用一份
 
-上面這些規則（AI 整理的提示、Jev 的題目和門檻、指令的步驟、找輸入框、詞彙自動學）都放在 `core/`，只放和平台無關的邏輯：不用 `node:` 模組、不碰檔案和網路（`tests/core.spec.mjs` 會檢查）。要看畫面、打模型、存東西，由呼叫端傳接頭進來：
+上面這些規則（AI 整理的提示、Jev 的題目和門檻、指令的步驟、找輸入框、詞彙自動學），加上語音那一層（本機斷句、雲端即時轉寫的連線與重連補送、輸入框聽寫停下後怎麼寫回去），都放在 `core/`，只放和平台無關的邏輯：不用 `node:` 模組、不碰檔案（`tests/core.spec.mjs` 會檢查）。要看畫面、打模型、連轉寫、存東西，由呼叫端傳接頭進來；收音本身（Mac 的 ffmpeg、瀏覽器的 AudioWorklet）在各 app，每 100 ms 把一批樣本交給核心：
 
 | 接頭 | 介面 | Mac 小程式怎麼接 | 其他 App 怎麼接 |
 |---|---|---|---|
 | 服務 | `complete({ system, user, schema })`、`jev({ state, questions })` | `core/providers.mjs` 的 `ownKeyService`：自己的 key 直接打 OpenAI／DeepSeek／Claude、TypeSafe | 接自己的後端（扣點數、平台吸收） |
 | 畫面 | `elements({ limit, ocr })`、`act({ handle, action, text, x, y })` | AX 小幫手（`bin/ax-agent.js`）：輔助使用＋截圖認字 | 讀自己的頁面 |
 | 存放 | `loadState`、`saveState`、`readVocab`、`writeVocab` | 檔案（`~/.voice-dictation`） | 瀏覽器的儲存或自己的後端 |
+| 轉寫 | `connect()` → WebSocket 網址，或 `{ url, headers, sessionUpdate }` | `bin/engines/realtime.mjs`：OpenAI 直連（自己的 key）或平行沙盒 control（API key 換語音 token） | CubeLV 後端的 `/ws/transcription`、平行沙盒 control 的 `/v1/transcription` |
+
+語音那一層的分工：
+
+- `turns.mjs`：`AudioTurnDetector` 判斷有沒有人聲（門檻跟著最近 3 秒的底噪走，尖峰夠高也算），停頓 850 ms 切一句；`TurnSplitter` 再加上開口前 0.4 秒的預錄，回傳這批要送出去的聲音和切出來的句子。
+- `transcription.mjs`：`createTranscriber` 是一條 OpenAI Realtime transcription 連線（每句一個 commit；連線前的聲音先排著；斷了就重連，把還沒拿到字的聲音與句子照順序重送；每句的字照講的順序、帶起訖時間）。Mac 小程式用 `lazy`（有聲音才連，安靜夠久先關）。`createSpeechTranscription` 是一段錄音（輸入框聽寫、驗收錄影的字幕）：斷句、時鐘校正、`hearing`／`recognizing` 狀態、checkpoint、finish。
+- `dictation.mjs`：輸入框聽寫停下後的第二層與寫回：`polishTranscript`（整理、逾時照原稿）、`applyPolish`（寫成什麼、要不要送出、留不留換回原文）、`revertPolish`、`joinPolished`。
 
 其他專案用 `scripts/sync-core.sh <目標資料夾>` 同步一份過去：每個檔案開頭寫來源 commit，不在那邊改；要改回 `core/` 改再同步。TypeScript 用 `core/index.d.mts` 的型別。
 
@@ -152,7 +159,7 @@ LINE 這類 app 輔助使用只讀得到搜尋框和訊息框（實測 3 個元�
 
 | 檔案 | 做什麼 |
 |---|---|
-| `core/` | 共用核心：`editor.mjs`（AI 整理）、`decide.mjs`（決策題目與門檻）、`commander.mjs`（指令步驟）、`targeter.mjs`、`learn.mjs`、`vocab.mjs`、`turns.mjs`（斷句）、`ocr.mjs`（截圖認字的字排順序、接成文字、跟其他上下文合在字數內）、`providers.mjs`（自己的 key）、`index.d.mts`（型別） |
+| `core/` | 共用核心：`editor.mjs`（AI 整理）、`decide.mjs`（決策題目與門檻）、`commander.mjs`（指令步驟）、`targeter.mjs`、`learn.mjs`、`vocab.mjs`、`turns.mjs`（斷句）、`transcription.mjs`（即時轉寫連線）、`dictation.mjs`（輸入框聽寫的寫回）、`ocr.mjs`（截圖認字的字排順序、接成文字、跟其他上下文合在字數內）、`providers.mjs`（自己的 key）、`index.d.mts`（型別） |
 | `bin/listen.mjs` | 常駐程式：收音、切句、分段、讀上下文、AI 整理、找輸入框、指令、寫入、換回原文、自動學詞 |
 | `bin/ax-agent.js` | 常駐的 AX 小幫手（JXA），stdin／stdout 一行一個 JSON：context、paste、replace、targets、focus、read、elements、act |
 | `bin/ax.mjs` | 跟小幫手講話；掛了、卡住、用久了就重開 |

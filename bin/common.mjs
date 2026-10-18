@@ -14,4 +14,4 @@ export function findFfmpeg() {
 }
 
 // 本機斷句在核心（core/turns.mjs），跟平行沙盒 app 同一套。
-export { AudioTurnDetector } from '../core/turns.mjs';
+export { AudioTurnDetector, TurnSplitter } from '../core/turns.mjs';

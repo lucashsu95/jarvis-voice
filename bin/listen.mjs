@@ -22,7 +22,7 @@ import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSyn
 import { join } from 'node:path';
 import { createAx } from './ax.mjs';
 import { runCommand } from './commander.mjs';
-import { AudioTurnDetector, BATCH_BYTES, SAMPLE_RATE, findFfmpeg } from './common.mjs';
+import { TurnSplitter, BATCH_BYTES, SAMPLE_RATE, findFfmpeg } from './common.mjs';
 import { STATE_DIR, aiKey, appAllowed, configMtime, isLiveModel, loadConfig, styleFor } from './config.mjs';
 import { DEFAULT_MODELS, PROVIDER_NAMES, editSegment } from './editor.mjs';
 import { createBatchEngine } from './engines/batch.mjs';
@@ -226,10 +226,11 @@ const allowed = (bundle) => (process.env.VOICE_DICTATION_APPS
 
 let ffmpeg = null;
 let captureRetryAt = 0;
-let detector = new AudioTurnDetector();
+// 斷句與開口前 0.4 秒的預錄都在核心（core/turns.mjs 的 TurnSplitter，跟 CubeLV、平行沙盒同一份）
+let splitter = new TurnSplitter();
+let detector = splitter.detector;
 let pendingChunks = [];
 let pendingBytes = 0;
-let preRoll = [];
 let carry = Buffer.alloc(0);
 let sentSamples = 0;
 let lastSpeechAt = 0;
@@ -247,9 +248,12 @@ const stageAudio = () => {
   pendingBytes = 0;
 };
 
-const queueTurn = () => {
+const queueTurn = (turn) => {
   stageAudio();
-  engine.commit();
+  engine.commit(turn);
+};
+const takeAudio = (audio) => {
+  for (const b of audio) { pendingChunks.push(b); pendingBytes += b.length; }
 };
 
 // 診斷：每 15 秒記一次這段時間的最大音量，看麥克風到底有沒有收到聲音（全 0＝沒權限或被別的程式占住）、
@@ -268,7 +272,7 @@ function trackLevel(samples) {
   if (levelPeak === 0) notes.push('完全沒聲音，多半是剛給麥克風權限前就開了，重開麥克風');
   if (levelPeak >= 0.99) notes.push('有爆音（音量到頂），轉寫可能會錯');
   if (detector.shortBlips) notes.push(`${detector.shortBlips} 次聲音不到 0.18 秒，當雜音沒算成一句`);
-  log(`麥克風 15 秒內最大音量 ${levelPeak.toFixed(3)}（人聲門檻 0.055）${notes.length ? `：${notes.join('；')}` : ''}`);
+  log(`麥克風 15 秒內最大音量 ${levelPeak.toFixed(3)}（人聲門檻：尖峰 0.055 起，跟著底噪往上調）${notes.length ? `：${notes.join('；')}` : ''}`);
   // 權限詢問還沒按允許時開的麥克風，允許之後也一直收到 0：重開一次就好
   if (levelPeak === 0) reopenCapture = true;
   detector.shortBlips = 0;
@@ -283,17 +287,8 @@ function takeBatch(chunk) {
   const startMs = sentSamples / 24;
   sentSamples += samples.length;
   const wasSpeaking = detector.speaking;
-  const turn = detector.push(samples, startMs);
-  if (wasSpeaking) {
-    pendingChunks.push(chunk);
-    pendingBytes += chunk.length;
-  } else if (detector.speaking) {
-    for (const b of [...preRoll, chunk]) { pendingChunks.push(b); pendingBytes += b.length; }
-    preRoll = [];
-  } else {
-    preRoll.push(chunk);
-    if (preRoll.length > 4) preRoll.shift();
-  }
+  const { audio, turn } = splitter.push(samples, startMs);
+  takeAudio(audio);
   if (detector.speaking) lastSpeechAt = Date.now();
   if ((detector.speaking || turn) && detector.lastVoiced) lastVoiceAt = Date.now();
   if (detector.speaking || turn) turnPeak = Math.max(turnPeak, peak);
@@ -302,7 +297,7 @@ function takeBatch(chunk) {
   if (turn) {
     log(`切出一句 ${((turn.endMs - turn.startMs) / 1000).toFixed(1)} 秒（最大音量 ${turnPeak.toFixed(3)}${turnPeak >= 0.99 ? '，爆音' : ''}），送去轉寫`);
     turnPeak = 0;
-    queueTurn();
+    queueTurn(turn);
   }
 }
 
@@ -310,14 +305,13 @@ function takeBatch(chunk) {
 function finishTurn() {
   if (carry.length >= 2) takeBatch(Buffer.from(carry.subarray(0, carry.length - (carry.length % 2))));
   carry = Buffer.alloc(0);
-  const turn = detector.finish();
+  const { audio, turn } = splitter.finish();
   if (turn) {
     log(`麥克風停了，講到一半的那句（${((turn.endMs - turn.startMs) / 1000).toFixed(1)} 秒）送去轉寫`);
-    for (const b of preRoll) { pendingChunks.push(b); pendingBytes += b.length; }
-    queueTurn();
+    takeAudio(audio);
+    queueTurn(turn);
   }
   turnPeak = 0;
-  preRoll = [];
   pendingChunks = [];
   pendingBytes = 0;
 }
@@ -327,8 +321,8 @@ function startCapture() {
   log('開麥克風');
   levelPeak = 0;
   levelSince = Date.now();
-  detector = new AudioTurnDetector();
-  preRoll = [];
+  splitter = new TurnSplitter();
+  detector = splitter.detector;
   carry = Buffer.alloc(0);
   const input = inputFile ? ['-re', '-i', inputFile] : ['-f', 'avfoundation', '-i', ':default'];
   const child = spawn(findFfmpeg(), [

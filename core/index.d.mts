@@ -1,6 +1,6 @@
 // JarvisVoice 核心的型別（給 TypeScript 專案用：CubeLV、平行沙盒）。
 
-export type Complete = (req: { system: string; user: string; schema?: object | null; timeoutMs?: number }) => Promise<string>;
+export type Complete = (req: { system: string; user: string; schema?: object | null; timeoutMs?: number; signal?: AbortSignal }) => Promise<string>;
 export type Jev = (req: { state: unknown; questions: Record<string, Question> }) => Promise<Record<string, Answer>>;
 export interface Question { type: 'choice' | 'noul' | 'score'; instructions: string; criteria?: unknown }
 export interface Answer { type?: string; choice?: string; confidence?: number; noul?: number; probabilities?: Record<string, number> }
@@ -69,13 +69,95 @@ export function createVocabAuto(input: { log?: (m: string) => void; store: Vocab
   afterSegment(input: { screen?: string; text?: string }, now?: number): Promise<void>;
 };
 
+export interface AudioTurn { startMs: number; endMs: number }
 export class AudioTurnDetector {
   readonly speaking: boolean;
+  readonly currentStartMs: number | null;
   lastVoiced: boolean;
   shortBlips: number;
-  push(samples: Int16Array, startMs: number): { startMs: number; endMs: number } | null;
-  finish(): { startMs: number; endMs: number } | null;
+  push(samples: Int16Array, startMs: number): AudioTurn | null;
+  finish(): AudioTurn | null;
 }
+export class TurnSplitter {
+  constructor(opts?: { preRollBatches?: number });
+  readonly detector: AudioTurnDetector;
+  readonly speaking: boolean;
+  readonly currentStartMs: number | null;
+  push(samples: Int16Array, startMs: number): { audio: Uint8Array[]; turn: AudioTurn | null };
+  finish(): { audio: Uint8Array[]; turn: AudioTurn | null };
+}
+
+/** 轉寫連線接頭：WebSocket 網址，或連線前要帶的 header 與開線後第一個送出的設定。 */
+export type TranscriptionTarget = string | { url: string; headers?: Record<string, string>; sessionUpdate?: object };
+export type TranscriptionConnect = () => Promise<TranscriptionTarget>;
+export interface TranscriptItemUpdate { id: string; startMs: number; endMs?: number; text: string; final: boolean }
+export type VoiceActivity = 'idle' | 'hearing' | 'recognizing';
+export interface TranscriberOptions {
+  connect: TranscriptionConnect;
+  onItem?: (item: TranscriptItemUpdate) => void;
+  onTranscript?: (transcript: string) => void;
+  onFinal?: (text: string, item: { id: string; startMs?: number; endMs?: number }) => void;
+  onPending?: () => void;
+  onError?: (error: Error) => void;
+  log?: (message: string) => void;
+  describe?: () => string;
+  startHint?: () => number | null;
+  elapsed?: () => number;
+  lazy?: boolean;
+  maxReconnects?: number;
+  retryBaseMs?: number;
+  openTimeoutMs?: number;
+}
+export interface Transcriber {
+  append(bytes: Uint8Array): void;
+  commit(turn: AudioTurn): number;
+  flush(): void;
+  pending(): number;
+  lastSequence(): number;
+  busy(): boolean;
+  readonly failed: Error | null;
+  transcript(): string;
+  waitForOpen(): Promise<void>;
+  waitFor(target?: number): Promise<void>;
+  finish(): Promise<string>;
+  idle(state?: { active?: boolean; quietForMs?: number; speaking?: boolean }): void;
+  close(): void;
+}
+export function createTranscriber(options: TranscriberOptions): Transcriber;
+export interface SpeechTranscription {
+  push(samples: Int16Array, at?: { startSample?: number; at?: number }): void;
+  cut(): void;
+  readonly speaking: boolean;
+  readonly capturedUntilMs: number;
+  readonly failed: Error | null;
+  checkpoint(wait?: boolean): Promise<number>;
+  finish(): Promise<string>;
+  stopCapture(): void;
+  close(): void;
+}
+export function createSpeechTranscription(options: Omit<TranscriberOptions, 'onPending' | 'startHint' | 'elapsed'> & {
+  recordingStartedAt?: number;
+  onActivity?: (activity: VoiceActivity) => void;
+}): SpeechTranscription;
+export function permanentError(message: string): Error & { permanent: true };
+export function base64FromBytes(bytes: Uint8Array): string;
+export const MAX_RECONNECTS: number;
+export const AUDIO_GAP_MS: number;
+
+export type PolishOutcome =
+  | { kind: 'polished'; text: string }
+  | { kind: 'empty' }
+  | { kind: 'raw'; reason: 'unsupported' | 'timeout' | 'failed' };
+export function polishTranscript(input: { transcript: string; complete: Complete; context?: EditContext; vocabulary?: string[]; timeoutMs?: number; log?: (message: string) => void }): Promise<PolishOutcome>;
+/** 換回原文要的東西：錄音前輸入框的字、原稿、整理後的字（空字串＝只有語氣詞、沒寫）、寫進去的整段。 */
+export interface PolishRevert { base: string; raw: string; text: string; written: string }
+export interface DictationWrite { input: string; send: boolean; revert: PolishRevert | null; review: boolean; notice: '' | 'voicePolishFailed' }
+export function mergeTranscript(base: string, transcript: string): string;
+export function joinPolished(base: string, text: string): string;
+export function changedWords(raw: string, text: string): boolean;
+export function revertPolish(current: string, revert: PolishRevert, readBack?: string): string | null;
+export function applyPolish(base: string, raw: string, outcome: PolishOutcome, action: 'send' | 'insert'): DictationWrite;
+export const POLISH_TIMEOUT_MS: number;
 export function isSpeech(text: string): boolean;
 export function onlyFiller(text: string): boolean;
 
