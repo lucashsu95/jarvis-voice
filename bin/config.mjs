@@ -26,6 +26,8 @@
 //                                       // 例（Qwen3 系）：{ "chat_template_kwargs": { "enable_thinking": false } }
 //                                       // 併進時會蓋掉預設（response_format、max_tokens）；某些 vLLM 建法不支援 json_object，
 //                                       // 在這裡放 "response_format": {"type":"text"} 就關掉
+//     "inlineSystem": false,           // gateway 注入了自己的 system prompt（會蓋掉我們送的 system）時改 true：
+//                                       // 把規則併進 user 訊息送（例：BIRC LiteLLM，實測 model 對 user 裡的指令遵循正常）
 //     // vLLM 沒開 auth 時 key 隨便填一個字串（例如 ai.keys 的 "openai-compatible": "sk-local"），只是程式要求非空
 //     "segmentPauseMs": 1800,          // 停多久算一段講完
 //     "contextChars": 400,             // 游標前後各讀幾個字給 AI
@@ -89,7 +91,7 @@ export function defaults() {
     },
     parallelsandbox: { apiKey: '', apiUrl: 'https://api.parallelsandbox.com' },
     ai: {
-      enabled: true, provider: 'deepseek', models: {}, keys: {}, keyFiles: {}, keyCommands: {}, baseUrls: {}, extraBody: {},
+      enabled: true, provider: 'deepseek', models: {}, keys: {}, keyFiles: {}, keyCommands: {}, baseUrls: {}, extraBody: {}, inlineSystem: false,
       segmentPauseMs: 1800, contextChars: 400, screenChars: 1500, timeoutMs: 6000, styles: {},
       history: true, learn: true,
       autoVocabulary: { enabled: true, max: 250, maxAuto: 80, minSightings: 3 },

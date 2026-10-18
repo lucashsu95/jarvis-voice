@@ -141,6 +141,23 @@ test('correction：自成一筆（raw／app／cleaned），長文（>1000 字）
   assert.deepEqual(c.chunks, []); // 1000 字以上不比對，chunks 空但記錄在
 });
 
+test('inlineSystem：開時規則併進 user 訊息、system 留空（gateway 注入 system prompt 用）', async () => {
+  resetLog();
+  writeFileSync(CFG, JSON.stringify({ ai: { inlineSystem: true } }));
+  try {
+    await ask({ provider: 'openai-compatible', model: 'M', apiKey: 'k', baseUrl: URL, system: '規則R', user: '使用者內容' });
+    const msgs = body.json.messages;
+    assert.equal(msgs[0].role, 'system');
+    assert.equal(msgs[0].content, '');
+    assert.equal(msgs[1].content, '規則R\n\n使用者內容');
+    const rec = logLines().at(-1);
+    assert.equal(rec.system, '');
+    assert.equal(rec.user, '規則R\n\n使用者內容');
+  } finally {
+    writeFileSync(CFG, JSON.stringify({}));
+  }
+});
+
 test('ai-call：kind 要分辨 edit／terms／other', async () => {
   resetLog();
   await ask({ provider: 'openai-compatible', model: 'M', apiKey: 'k', baseUrl: URL, system: 's', user: 'u',
