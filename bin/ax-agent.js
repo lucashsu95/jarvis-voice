@@ -22,6 +22,10 @@ ObjC.import('Cocoa');
 ObjC.import('ApplicationServices');
 ObjC.import('CoreGraphics');
 ObjC.import('Vision');
+// Vision 認字設定（visionItems）跟 vision-ocr.js 共用一份：vision.js 放在同一個資料夾
+eval(ObjC.unwrap($.NSString.stringWithContentsOfFileEncodingError(
+  `${ObjC.unwrap($.NSProcessInfo.processInfo.arguments).map((a) => ObjC.unwrap(a)).find((a) => a.endsWith('ax-agent.js')).replace(/ax-agent\.js$/, '')}vision.js`,
+  $.NSUTF8StringEncoding, null)));
 
 // AXUIElementRef 在執行期是 CF 物件，全部當 id 傳：JXA 對 AX 的 out 參數型別對不上，自己綁簽名
 ObjC.bindFunction('AXUIElementCreateApplication', ['id', ['int']]);
@@ -244,27 +248,8 @@ function ocr({ pid, ask = true }) {
   const image = $.CGWindowListCreateImage($.CGRectNull, $.kCGWindowListOptionIncludingWindow, win.id,
     $.kCGWindowImageBoundsIgnoreFraming | $.kCGWindowImageBestResolution);
   if (!image) return { permission: true, items: [] };
-  const handler = $.VNImageRequestHandler.alloc.initWithCGImageOptions(image, $.NSDictionary.dictionary);
-  const request = $.VNRecognizeTextRequest.alloc.init;
-  request.setRecognitionLevel(0); // 精準：快速模式認不出中文
-  request.setRecognitionLanguages($(['zh-Hant', 'zh-Hans', 'en-US']));
-  request.setUsesLanguageCorrection(true);
-  handler.performRequestsError($([request]), null);
-  const items = [];
-  const results = request.results;
-  for (let i = 0; results && i < results.count; i += 1) {
-    const obs = results.objectAtIndex(i);
-    const text = ObjC.unwrap(obs.topCandidates(1).objectAtIndex(0).string) || '';
-    const b = obs.boundingBox; // 0–1，左下角原點
-    if (!text.trim()) continue;
-    items.push({
-      text: text.trim(),
-      x: win.x + b.origin.x * win.w,
-      y: win.y + (1 - b.origin.y - b.size.height) * win.h,
-      w: b.size.width * win.w,
-      h: b.size.height * win.h,
-    });
-  }
+  // 認字設定在 vision.js（跟平行沙盒桌面版同一份）；位置從 0–1 換成螢幕座標
+  const items = visionItems(image).map((i) => ({ text: i.text, x: win.x + i.x * win.w, y: win.y + i.y * win.h, w: i.w * win.w, h: i.h * win.h }));
   // 排順序、接成文字在核心（core/ocr.mjs），由 bin/ax.mjs 收到後處理
   return { permission: true, items };
 }
