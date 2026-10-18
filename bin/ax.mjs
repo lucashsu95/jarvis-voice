@@ -4,6 +4,7 @@
 import { spawn } from 'node:child_process';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { ocrText, readingOrder } from '../core/ocr.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const RECYCLE_AFTER = 400;
@@ -82,5 +83,20 @@ export function createAx({ log = () => {}, script = join(HERE, 'ax-agent.js') } 
     });
   }
 
-  return { call, close: stop };
+  // 截圖認字的結果照核心的規則排順序、接成文字（跟平行沙盒同一套）
+  function finish(op, args, res) {
+    if (op === 'ocr') return { ...res, items: readingOrder(res.items) };
+    if (op === 'context' && res.screenOcr) {
+      const { screenOcr, ...rest } = res;
+      return { ...rest, screen: ocrText(screenOcr, { maxChars: args.screen || 1500 }) };
+    }
+    if (op === 'elements' && res.elements?.some((e) => e.ocr)) {
+      const read = res.elements.filter((e) => !e.ocr);
+      const seen = readingOrder(res.elements.filter((e) => e.ocr).map((e) => ({ ...e, text: e.label }))).map(({ text, ...e }) => e);
+      return { ...res, elements: [...read, ...seen].slice(0, Math.max(read.length, args.limit ?? 150)) };
+    }
+    return res;
+  }
+
+  return { call: (op, args = {}, timeoutMs) => call(op, args, timeoutMs).then((res) => finish(op, args, res)), close: stop };
 }

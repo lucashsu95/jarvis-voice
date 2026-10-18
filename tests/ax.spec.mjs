@@ -8,6 +8,7 @@ import { after, test } from 'node:test';
 import { createAx } from '../bin/ax.mjs';
 import { runCommand } from '../bin/commander.mjs';
 import { createDecider } from '../bin/decide.mjs';
+import { readingOrder } from '../core/ocr.mjs';
 import { bringToFront, sendToBack, startBundle } from './fixtures/front.mjs';
 
 const ax = createAx();
@@ -75,6 +76,8 @@ test('讀不到畫面時截圖認字：認出視窗上的字和位置（要螢�
       await new Promise((r) => setTimeout(r, 400));
     }
     assert.ok(labels.some((t) => t.includes('設定')), labels.join('|'));
+    // 順序由核心排（由上往下、由左往右），跟平行沙盒同一套
+    assert.deepEqual(seen.items.map((x) => x.text), readingOrder(seen.items).map((x) => x.text));
     const both = await ax.call('elements', { pid: win.pid, ocr: 'always' }, 15000);
     assert.equal(both.source, 'ocr');
     assert.ok(both.elements.some((e) => e.ocr && e.label.includes('自選股')), '視窗標題是讀不到的元件，要列進來');

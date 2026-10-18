@@ -152,7 +152,7 @@ LINE 這類 app 輔助使用只讀得到搜尋框和訊息框（實測 3 個元�
 
 | 檔案 | 做什麼 |
 |---|---|
-| `core/` | 共用核心：`editor.mjs`（AI 整理）、`decide.mjs`（決策題目與門檻）、`commander.mjs`（指令步驟）、`targeter.mjs`、`learn.mjs`、`vocab.mjs`、`turns.mjs`（斷句）、`providers.mjs`（自己的 key）、`index.d.mts`（型別） |
+| `core/` | 共用核心：`editor.mjs`（AI 整理）、`decide.mjs`（決策題目與門檻）、`commander.mjs`（指令步驟）、`targeter.mjs`、`learn.mjs`、`vocab.mjs`、`turns.mjs`（斷句）、`ocr.mjs`（截圖認字的字排順序、接成文字、跟其他上下文合在字數內）、`providers.mjs`（自己的 key）、`index.d.mts`（型別） |
 | `bin/listen.mjs` | 常駐程式：收音、切句、分段、讀上下文、AI 整理、找輸入框、指令、寫入、換回原文、自動學詞 |
 | `bin/ax-agent.js` | 常駐的 AX 小幫手（JXA），stdin／stdout 一行一個 JSON：context、paste、replace、targets、focus、read、elements、act |
 | `bin/ax.mjs` | 跟小幫手講話；掛了、卡住、用久了就重開 |

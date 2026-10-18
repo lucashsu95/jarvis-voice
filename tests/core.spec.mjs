@@ -46,6 +46,31 @@ test('整理規則：只刪贅字和結巴，髒話、刻意重複、招呼和�
   assert.doesNotMatch(system, /聽不出意思的片段/);
 });
 
+test('截圖認字：照閱讀順序排（上緣差不到半個字高算同一行）、同一行空白接、行跟行換行、太長留最後面', () => {
+  const items = [
+    { text: '送出', x: 300, y: 402, w: 40, h: 20 },
+    { text: '箱子目標', x: 10, y: 100, w: 80, h: 20 },
+    { text: '名稱', x: 10, y: 400, w: 40, h: 20 },
+    { text: '  ', x: 0, y: 0, w: 1, h: 1 },
+    { text: 'AStockTeam', x: 100, y: 104, w: 90, h: 20 },
+  ];
+  assert.deepEqual(core.readingOrder(items).map((i) => i.text), ['箱子目標', 'AStockTeam', '名稱', '送出']);
+  assert.equal(core.ocrText(items), '箱子目標 AStockTeam\n名稱 送出');
+  assert.equal(core.ocrText(items, { maxChars: 7 }), 'm\n名稱 送出');
+  // 0–1 的座標（iPhone Vision、Android ML Kit 換算後）也一樣
+  const norm = [{ text: '下', x: 0.1, y: 0.5, w: 0.1, h: 0.02 }, { text: '上', x: 0.5, y: 0.1, w: 0.1, h: 0.02 }];
+  assert.equal(core.ocrText(norm), '上\n下');
+});
+
+test('畫面上下文合併：每段都留著，太長從最長那段前面砍到總長以內', () => {
+  assert.equal(core.joinScreen(['箱子目標：上架', '', null, '畫面：送出']), '箱子目標：上架\n畫面：送出');
+  const joined = core.joinScreen(['目標'.repeat(10), '畫'.repeat(100)], { maxChars: 50 });
+  assert.equal(joined.length, 50);
+  assert.ok(joined.startsWith('目標'.repeat(10)));
+  assert.ok(joined.endsWith('畫'.repeat(29)));
+  assert.equal(core.joinScreen(['a'.repeat(30), 'b'.repeat(30)], { maxChars: 21 }), `${'a'.repeat(10)}\n${'b'.repeat(10)}`);
+});
+
 test('斷句：有聲音但不到 180 ms 的不算一句，記下次數給 log 用', () => {
   const d = new core.AudioTurnDetector();
   const loud = new Int16Array(2400).fill(8000);

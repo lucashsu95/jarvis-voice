@@ -78,6 +78,12 @@ export class AudioTurnDetector {
 }
 export function isSpeech(text: string): boolean;
 export function onlyFiller(text: string): boolean;
+
+/** 截圖認出的一段字；位置單位各平台自訂（同一次辨識一致），原點在左上角。 */
+export interface OcrItem { text: string; x: number; y: number; w: number; h: number }
+export function readingOrder<T extends OcrItem>(items: T[] | null | undefined): T[];
+export function ocrText(items: OcrItem[] | null | undefined, opts?: { maxChars?: number }): string;
+export function joinScreen(sections: (string | null | undefined)[], opts?: { maxChars?: number }): string;
 export function withSpacing(text: string): string;
 
 export const PROVIDERS: string[];

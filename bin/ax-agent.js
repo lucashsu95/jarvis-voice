@@ -15,7 +15,8 @@
 //   elements { pid, limit }           → { window, elements: [{ handle, role, subrole, label, x, y, w, h, focused }] }：畫面上可以操作的東西
 //   act     { pid, handle, action, text, x, y } → { result: ok | gone | not-front | failed }：press 點、fill 填字、enter 按 Enter、
 //                                       clickAt 在 (x, y) 點一下滑鼠（截圖認出來的字沒有元件可以按，用這個）
-//   ocr     { pid, ask }              → { permission, items: [{ text, x, y, w, h }] }：截最前面那個視窗（只在記憶體裡）認字
+//   ocr     { pid, ask }              → { permission, items: [{ text, x, y, w, h }] }：截最前面那個視窗（只在記憶體裡）認字；
+//                                       順序與接成文字由 bin/ax.mjs 用核心（core/ocr.mjs）處理
 // 讀不到畫面的 app（例如 LINE：只有視窗按鈕和輸入框，畫面上的字讀不到）：context 的 screen、elements 會自動改用截圖認字補上
 ObjC.import('Cocoa');
 ObjC.import('ApplicationServices');
@@ -264,7 +265,7 @@ function ocr({ pid, ask = true }) {
       h: b.size.height * win.h,
     });
   }
-  items.sort((a, b) => (Math.abs(a.y - b.y) < 6 ? a.x - b.x : a.y - b.y)); // 由上往下、由左往右
+  // 排順序、接成文字在核心（core/ocr.mjs），由 bin/ax.mjs 收到後處理
   return { permission: true, items };
 }
 
@@ -297,8 +298,8 @@ function context({ pid, chars = 400, screen = 0 }) {
     // 畫面上的字讀不到、能操作的東西也幾乎沒有：改用截圖認字
     if (!out.screen && looksOpaque(elements({ pid, limit: 40 }).elements)) {
       const seen = ocr({ pid });
-      const all = seen.items.map((i) => i.text).join(' ');
-      out.screen = all.length > screen ? all.slice(all.length - screen) : all;
+      out.screen = '';
+      out.screenOcr = seen.items; // bin/ax.mjs 用核心的 ocrText 接成字
       out.screenSource = seen.permission ? 'ocr' : 'no-permission';
     }
   }
@@ -548,7 +549,8 @@ function elements({ pid, limit = 150, ocr: withOcr = 'never' }) {
       const cy = item.y + item.h / 2;
       return cx >= e.x && cx <= e.x + e.w && cy >= e.y && cy <= e.y + e.h;
     });
-    for (const item of seen.items.filter((i) => !inside(i)).slice(0, Math.max(0, limit - out.length))) {
+    // 全部交回去：bin/ax.mjs 照核心的閱讀順序排好再取到 limit 個
+    for (const item of seen.items.filter((i) => !inside(i))) {
       out.push({ handle: 0, role: 'OCRText', subrole: '', label: item.text.slice(0, 60), x: item.x, y: item.y, w: item.w, h: item.h, focused: false, ocr: true });
     }
   }
