@@ -33,7 +33,8 @@ for p in /opt/homebrew/bin/ffmpeg /usr/local/bin/ffmpeg "$(command -v ffmpeg || 
   [[ -n "$p" && -x "$p" ]] && { FFMPEG="$p"; break; }
 done
 [[ -n "$FFMPEG" ]] || fail "需要 ffmpeg 收音：brew install ffmpeg"
-note "node $(node -v)（$NODE）、ffmpeg $FFMPEG"
+# bash 3.2＋set -u 對「全形標點緊貼 $變數」會解析錯變數名，一律用 ${}
+note "node $(node -v)（${NODE}）、ffmpeg ${FFMPEG}"
 
 say "安裝套件"
 (cd "$DIR" && npm install --omit=dev --no-audit --no-fund --loglevel=error)
@@ -67,7 +68,7 @@ if [[ "$ENGINE" == local ]]; then
   fi
 fi
 
-say "設定檔：$CONFIG（引擎 $ENGINE）"
+say "設定檔：${CONFIG}（引擎 ${ENGINE}）"
 node - "$CONFIG" "$ENGINE" <<'EOF'
 const fs = require('fs');
 const [file, engine] = process.argv.slice(2);
@@ -93,7 +94,7 @@ if command -v claude >/dev/null && claude plugin list 2>/dev/null | grep -q "voi
   note "已移除舊版的 Claude Code plugin"
 fi
 
-say "選單列小程式：$APP"
+say "選單列小程式：${APP}"
 # 舊名稱「全語音輸入.app」「語音輸入.app」改名過來
 for OLD in "$HOME/Applications/全語音輸入.app" "$HOME/Applications/語音輸入.app"; do
   if [[ -d "$OLD" && ! -d "$APP" ]]; then
@@ -126,7 +127,7 @@ cat > "$AGENT" <<EOF
 </dict>
 </plist>
 EOF
-note "開機自動啟動：$AGENT"
+note "開機自動啟動：${AGENT}"
 
 open "$APP"
 
