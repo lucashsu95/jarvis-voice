@@ -431,6 +431,31 @@ test('整條管線：AI 失敗改貼原稿；AI 整理關著時一句一句貼',
   }
 });
 
+test('選單列：說話中每 0.1 秒送音量；停下後辨識中（working）一直到寫完才結束（idle）', { timeout: 30_000 }, async () => {
+  const stt = await transcribeServer();
+  const chat = await fakeJson(() => chatReply({ mode: 'insert', text: '第一句，第二句。', goal: '', app: '' }));
+  try {
+    const events = await runListener(mkdtempSync(join(tmpdir(), 'voice-dictation-pipe-')), {
+      engine: 'openai', openai: { apiKey: 'sk-test' }, ai: { enabled: true, provider: 'openai', segmentPauseMs: 1500 },
+    }, { VOICE_DICTATION_OPENAI_HTTP_URL: `${stt.url}/v1/audio/transcriptions`, VOICE_DICTATION_OPENAI_CHAT_URL: `${chat.url}/chat`, VOICE_DICTATION_HUD: '1' });
+    const hud = events.filter((e) => e.type === 'hud').map((e) => e.line);
+    const levels = hud.filter((l) => l.startsWith('level:')).map((l) => Number(l.slice(6)));
+    assert.ok(levels.length >= 10, `說話中要一直送音量：${levels.length} 次`);
+    assert.ok(levels.every((v) => v >= 0 && v <= 1));
+    assert.ok(Math.max(...levels) > 0.8, `嗶聲時音量偏高：${Math.max(...levels)}`);
+    assert.ok(levels.some((v) => v < 0.2), '嗶聲後還沒切句的停頓，音量掉下來（聲波降回最矮）');
+    const working = hud.indexOf('working');
+    const idle = hud.lastIndexOf('idle');
+    assert.ok(working > hud.indexOf('hearing'), '先聽到才進辨識中');
+    assert.ok(idle > working, `辨識中要結束：${hud.filter((l) => !l.startsWith('level:')).join(' → ')}`);
+    const pastedAt = events.findIndex((e) => e.type === 'pasted');
+    assert.ok(pastedAt >= 0 && events.findIndex((e) => e.type === 'hud' && e.line === 'idle' && events.indexOf(e) > pastedAt) > pastedAt, '寫完才結束辨識中');
+  } finally {
+    stt.close();
+    chat.close();
+  }
+});
+
 test('整條管線：開了指令模式，AI 說是指令就走指令（測試模式只回報不操作）', { timeout: 30_000 }, async () => {
   const stt = await transcribeServer();
   const chat = await fakeJson(() => chatReply({ mode: 'command', text: '台積電', goal: '打開台積電（2330）的個股頁', app: '' }));

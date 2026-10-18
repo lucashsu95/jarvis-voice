@@ -1,10 +1,8 @@
 // 「JarvisVoice」選單列的介面與常駐程式管理。由 app/main.js（包進 .app 的外殼）啟動時讀進來執行，
 // 所以改這個檔不用重包 app，麥克風與輔助使用權限也不用重給；改完從選單「結束」再打開 app 就生效。
 // 帶起常駐程式 bin/listen.mjs（它掛了 3 秒後自己重開），狀態全顯示在選單列的圖示上。
-// 圖示是「JarvisVoice」自己的：單循環箭頭包住三條聲波（自動＋聲音）。固定寬度、不加字（加字會讓旁邊的
-// 圖示跳來跳去），顏色交給系統（範本圖，跟其他選單列圖示同色），只換箭頭裡面的東西：
-//   三條聲波＝收音中、聲波變高＝聽到你講話、打勾＝剛貼好、叉叉＝游標不在輸入框所以沒貼、
-//   ‖＝暫停、聲波變淡＝待命（最前面的 app 不收音）、驚嘆號＝出錯（點開選單看原因）。
+// 圖示平常是「JarvisVoice」標誌：單循環箭頭包住三條聲波（自動＋聲音）；有事時整個換成大圖（看「選單列圖示」那段）。
+// 固定寬度、不加字（加字會讓旁邊的圖示跳來跳去），顏色交給系統（範本圖，跟其他選單列圖示同色）。
 // 選單可以切 AI 整理（關／OpenAI／DeepSeek／Claude）、自動找輸入框、語音指令，改的是設定檔，常駐程式會自己換；
 // 「換回原文」把上一段 AI 整理過的字換回轉寫原稿。
 // BUILD（{ node, repo, state }）由外殼放在全域。
@@ -28,6 +26,10 @@ let quitting = false;
 let buffer = '';
 let view = { state: 'starting', message: '', engine: '' };
 let hearing = false; // 常駐程式說聽到人聲
+let working = false; // 常駐程式說有句子在轉寫、整理或等著寫（辨識中）
+let level = 0; // 說話中的音量 0–1（常駐程式每 0.1 秒送一次）
+let levelAt = 0;
+let animTimer = null; // 說話中、辨識中時每 0.1 秒換一張圖
 let flash = null; // { kind: 'pasted' | 'nofield', until }：短暫顯示的結果
 // 常駐程式報上來的設定（settings 事件）
 let settings = { ai: { enabled: false, provider: 'deepseek', ready: false }, autoFocus: false, commands: false, decider: '' };
@@ -55,7 +57,16 @@ function label() {
   }
 }
 
-// ── 選單列圖示：18×18 點的格子（左下角原點），黑色加透明度畫，系統再依選單列換成白或黑 ──
+// ── 選單列圖示：20×18 點的格子（左下角原點），黑色加透明度畫，系統再依選單列換成白或黑 ──
+// 平常（收音中）是 JarvisVoice 標誌：循環箭頭包住三條聲波。有事時整個換成 16 點高的大圖，一眼看得出狀況：
+//   說話中＝五條聲波跟著音量動、辨識中＝標誌的循環箭頭在轉（停下到貼上：轉寫＋AI 整理）、已貼上＝打勾、
+//   沒貼上＝叉叉（游標不在輸入框）、出錯＝三角形驚嘆號、待命＝標誌變淡（最前面的 app 不收音）、暫停＝標誌加一條斜線。
+// 設計稿：https://claude.ai/artifact/4JHjaYSLyB8ptFdb52vYDQ
+const ICON_W = 20;
+const ICON_H = 18;
+const QUIET = [3, 5, 8, 5, 3]; // 五條聲波最矮的樣子：說話中至少這麼高
+const BAR_X = [2, 6, 10, 14, 18];
+const BAR_WEIGHT = [0.62, 0.86, 1, 0.86, 0.62];
 
 function iconPath(points) {
   const p = $.NSBezierPath.bezierPath;
@@ -63,9 +74,10 @@ function iconPath(points) {
   return p;
 }
 
-function iconBar(cx, h, alpha = 1, cy = 9) {
+function iconRect(x, y, w, h, alpha = 1) {
   $.NSColor.colorWithWhiteAlpha(0, alpha).set;
-  $.NSBezierPath.bezierPathWithRoundedRectXRadiusYRadius($.NSMakeRect(cx - 0.75, cy - h / 2, 1.5, h), 0.75, 0.75).fill;
+  const r = Math.min(w, h) / 2;
+  $.NSBezierPath.bezierPathWithRoundedRectXRadiusYRadius($.NSMakeRect(x, y, w, h), r, r).fill;
 }
 
 function iconStroke(points, width = 1.5) {
@@ -77,76 +89,136 @@ function iconStroke(points, width = 1.5) {
   p.stroke;
 }
 
-// 暫停：外圈裡一支麥克風，一條斜線從外圈一邊連到另一邊（像「禁止」標誌），跟「在聽」的聲波一眼分得出來。
-// 斜線兩旁先把麥克風挖空一點，線才不會黏在麥克風上
-function drawMutedMic() {
-  $.NSColor.blackColor.set;
-  $.NSBezierPath.bezierPathWithRoundedRectXRadiusYRadius($.NSMakeRect(7.5, 8.9, 3, 4.9), 1.5, 1.5).fill;
-  const holder = $.NSBezierPath.bezierPath;
-  holder.appendBezierPathWithArcWithCenterRadiusStartAngleEndAngleClockwise($.NSMakePoint(9, 10.7), 3.1, 200, 340, false);
-  holder.setLineWidth(1.25);
-  holder.setLineCapStyle(1);
-  holder.stroke;
-  iconStroke([[9, 7.6], [9, 5.7]], 1.25);
-  const d = 7.2 / Math.SQRT2; // 斜線兩端壓進外圈，不留細縫
-  const gap = iconPath([[9 - 4.2, 9 + 4.2], [9 + 4.2, 9 - 4.2]]);
-  gap.setLineWidth(3.05);
-  $.NSGraphicsContext.currentContext.setCompositingOperation(0); // NSCompositingOperationClear
-  gap.stroke;
-  $.NSGraphicsContext.currentContext.setCompositingOperation(2); // NSCompositingOperationSourceOver
-  const slash = iconPath([[9 - d, 9 + d], [9 + d, 9 - d]]);
-  slash.setLineWidth(1.25);
-  slash.stroke;
+// 之後畫的東西改成挖空（透明），畫完 fn 再換回來
+function clearing(fn) {
+  const ctx = $.NSGraphicsContext.currentContext;
+  ctx.setCompositingOperation(0); // NSCompositingOperationClear
+  fn();
+  ctx.setCompositingOperation(2); // NSCompositingOperationSourceOver
 }
 
-// kind：listening、speaking、standby、paused、pasted、nofield、error
-function drawGlyph(kind) {
+// 整組先畫在一張不透明的小圖上，再用 alpha 貼上來：箭頭跟圓線重疊的地方才不會比較深
+function withAlpha(alpha, fn) {
+  if (alpha >= 1) { fn(); return; }
+  const layer = $.NSImage.alloc.initWithSize($.NSMakeSize(ICON_W, ICON_H));
+  layer.lockFocus;
+  fn();
+  layer.unlockFocus;
+  layer.drawInRectFromRectOperationFraction($.NSMakeRect(0, 0, ICON_W, ICON_H), $.NSZeroRect, 2, alpha);
+}
+
+// JarvisVoice 標誌：圓心 (10, 9)、半徑 7.5，缺口在右上。箭頭底邊中點在 50°、尖端落在圓上 84°，
+// 圓線從 54°（藏在箭頭裡）順時針畫到 102°，跟箭頭尖端留一段空隙。spin 是整圈轉的角度（逆時針，跟箭頭同方向）
+function drawBrand({ bars = true, spin = 0 } = {}) {
+  const R = 7.5;
+  const cx = 10;
+  const cy = 9;
+  $.NSGraphicsContext.saveGraphicsState;
+  if (spin) {
+    const turn = $.NSAffineTransform.transform;
+    turn.translateXByYBy(cx, cy);
+    turn.rotateByDegrees(spin);
+    turn.translateXByYBy(-cx, -cy);
+    turn.concat;
+  }
   $.NSColor.blackColor.set;
-  // 單循環箭頭：圓心 (9, 9)、半徑 6.9，缺口在右上。箭頭底邊中點在 50°，尖端落在圓上 80°，
-  // 圓線畫到 52°（藏在箭頭裡），另一頭停在 100°，跟箭頭尖端留一段空隙
-  const R = 6.9;
-  const at = (deg) => [9 + R * Math.cos((deg * Math.PI) / 180), 9 + R * Math.sin((deg * Math.PI) / 180)];
+  const at = (deg) => [cx + R * Math.cos((deg * Math.PI) / 180), cy + R * Math.sin((deg * Math.PI) / 180)];
   const ring = $.NSBezierPath.bezierPath;
-  ring.appendBezierPathWithArcWithCenterRadiusStartAngleEndAngleClockwise($.NSMakePoint(9, 9), R, 52, 100, true);
-  ring.setLineWidth(1.5);
+  ring.appendBezierPathWithArcWithCenterRadiusStartAngleEndAngleClockwise($.NSMakePoint(cx, cy), R, 54, 102, true);
+  ring.setLineWidth(1.8);
   ring.stroke;
   const [bx, by] = at(50);
-  const [tx, ty] = at(80);
+  const [tx, ty] = at(84);
   const len = Math.hypot(tx - bx, ty - by);
   const [nx, ny] = [(ty - by) / len, -(tx - bx) / len]; // 跟箭頭方向垂直
-  const half = 2.3;
+  const half = 2.7;
   const tip = iconPath([[tx, ty], [bx + nx * half, by + ny * half], [bx - nx * half, by - ny * half]]);
   tip.closePath;
   tip.fill;
-  if (kind === 'speaking') [[6.6, 3.8], [9, 7.2], [11.4, 4.8]].forEach(([x, h]) => iconBar(x, h));
-  else if (kind === 'standby') [[6.6, 2.6], [9, 5.2], [11.4, 3.2]].forEach(([x, h]) => iconBar(x, h, 0.35));
-  else if (kind === 'paused') drawMutedMic();
-  else if (kind === 'pasted') iconStroke([[6.3, 9.1], [8.3, 7.1], [11.9, 10.9]], 1.6);
-  else if (kind === 'nofield') { iconStroke([[6.9, 11.1], [11.1, 6.9]]); iconStroke([[6.9, 6.9], [11.1, 11.1]]); }
-  else if (kind === 'error') {
-    // 驚嘆號整體（直線 5、空隙 1.1、圓點 1.6）的中心對齊圓心
-    iconBar(9, 5, 1, 10.35);
-    $.NSBezierPath.bezierPathWithOvalInRect($.NSMakeRect(8.2, 5.15, 1.6, 1.6)).fill;
-  }
-  else [[6.6, 2.6], [9, 5.2], [11.4, 3.2]].forEach(([x, h]) => iconBar(x, h));
+  $.NSGraphicsContext.restoreGraphicsState;
+  if (bars) [[-2.7, 3.6], [0, 7], [2.7, 4.4]].forEach(([dx, h]) => iconRect(cx + dx - 0.9, cy - h / 2, 1.8, h));
+}
+
+// 說話中：五條聲波，高度由 animFrame 照音量算好
+function drawBars(heights) {
+  BAR_X.forEach((x, i) => iconRect(x - 1.1, ICON_H / 2 - heights[i] / 2, 2.2, heights[i]));
+}
+
+function drawWarning() {
+  $.NSColor.blackColor.set;
+  const tri = iconPath([[10, 16.4], [18.25, 1.9], [1.75, 1.9]]);
+  tri.closePath;
+  tri.setLineWidth(1.6);
+  tri.setLineJoinStyle(1);
+  tri.fill;
+  tri.stroke;
+  clearing(() => {
+    iconRect(9.05, 6.4, 1.9, 5.2);
+    $.NSBezierPath.bezierPathWithOvalInRect($.NSMakeRect(10 - 1.15, 4.35 - 1.15, 2.3, 2.3)).fill;
+  });
+}
+
+// kind：listening、speaking、working、pasted、nofield、standby、paused、error。frame 給會動的兩種用
+function drawGlyph(kind, frame = {}) {
+  if (kind === 'speaking') drawBars(frame.heights ?? QUIET);
+  else if (kind === 'working') drawBrand({ bars: false, spin: frame.spin ?? 0 });
+  else if (kind === 'pasted') iconStroke([[3.6, 8.4], [8.2, 4], [16.6, 13.8]], 2.5);
+  else if (kind === 'nofield') { iconStroke([[6.5, 12.5], [13.5, 5.5]], 2); iconStroke([[6.5, 5.5], [13.5, 12.5]], 2); }
+  else if (kind === 'error') drawWarning();
+  else if (kind === 'standby') withAlpha(0.35, () => drawBrand());
+  else if (kind === 'paused') {
+    // 標誌加一條斜線（像「禁止」標誌）：斜線兩旁先挖空，線才不會黏在標誌上
+    withAlpha(0.75, () => drawBrand());
+    const slash = [[2.6, 1.6], [17.4, 16.4]];
+    clearing(() => { const gap = iconPath(slash); gap.setLineWidth(4.6); gap.setLineCapStyle(1); gap.stroke; });
+    iconStroke(slash, 2.2);
+  } else drawBrand();
 }
 
 const iconCache = {};
-function iconImage(kind) {
-  if (iconCache[kind]) return iconCache[kind];
-  const image = $.NSImage.alloc.initWithSize($.NSMakeSize(18, 18));
+let iconCacheSize = 0;
+function iconImage(kind, frame = null) {
+  const key = frame ? `${kind}:${frame.key}` : kind;
+  if (iconCache[key]) return iconCache[key];
+  const image = $.NSImage.alloc.initWithSize($.NSMakeSize(ICON_W, ICON_H));
   image.lockFocus;
-  drawGlyph(kind);
+  drawGlyph(kind, frame ?? {});
   image.unlockFocus;
   image.setTemplate(true);
-  iconCache[kind] = image;
+  // 說話中的聲波高度有很多種組合：快取太多就清掉重來（JXA 長時間跑會一直吃記憶體）
+  if (iconCacheSize > 400) { for (const k of Object.keys(iconCache)) if (k.includes(':')) delete iconCache[k]; iconCacheSize = 0; }
+  iconCache[key] = image;
+  iconCacheSize += 1;
   return image;
+}
+
+// 會動的兩種狀態的這一格：說話中聲波高度跟著音量（level 0–1），每條各自晃一點看起來像在聽，高度取整數點（同樣的高度
+// 共用一張圖）；辨識中每 0.1 秒轉 30°（1.2 秒一圈）
+function animFrame(kind) {
+  const now = Date.now();
+  if (kind === 'working') {
+    const step = Math.floor(now / 100) % 12;
+    return { spin: step * 30, key: String(step) };
+  }
+  if (kind === 'speaking') {
+    const fresh = now - levelAt < 400 ? level : level * Math.max(0, 1 - (now - levelAt - 400) / 600); // 沒收到音量就慢慢降下來
+    const heights = BAR_X.map((_, i) => {
+      const wobble = 0.6 + 0.4 * Math.sin((now / 1000) * (7 + i * 1.7) + i * 1.3);
+      return Math.round(Math.max(QUIET[i], 3 + 13 * Math.min(1, fresh * BAR_WEIGHT[i] * wobble * 1.25)));
+    });
+    return { key: heights.join(','), heights };
+  }
+  return null;
 }
 
 // 選單列圖示要畫哪一種，以及滑鼠停上去的說明
 function look() {
   if (flash && Date.now() < flash.until) return flash.kind === 'pasted' ? ['pasted', t('已貼上', 'Pasted')] : ['nofield', t('游標不在輸入框，沒貼', 'Not in a text field; nothing pasted')];
-  if (view.state === 'listening') return hearing ? ['speaking', t('說話中', 'Hearing you')] : ['listening', ''];
+  if (view.state === 'listening') {
+    if (hearing) return ['speaking', t('說話中', 'Hearing you')];
+    if (working) return ['working', t('辨識中：轉寫與 AI 整理', 'Transcribing and cleaning up')];
+    return ['listening', ''];
+  }
   if (view.state === 'paused') return ['paused', ''];
   if (view.state === 'error') return ['error', ''];
   return ['standby', ''];
@@ -182,10 +254,18 @@ function dumpFrame() {
   } catch (err) { /* 拿不到就算了 */ }
 }
 
+let lastTexts = '';
 function refresh() {
   if (!statusItem) return;
   const [kind, hint] = look();
-  statusItem.button.setImage(iconImage(kind));
+  statusItem.button.setImage(iconImage(kind, animFrame(kind)));
+  const moving = kind === 'speaking' || kind === 'working';
+  if (moving && !animTimer) animTimer = $.NSTimer.scheduledTimerWithTimeIntervalTargetSelectorUserInfoRepeats(0.1, controller, 'animate:', $(), true);
+  if (!moving && animTimer) { animTimer.invalidate; animTimer = null; }
+  // 動畫時每 0.1 秒會進來一次：字沒變就不重設
+  const texts = `${hint}|${label()}|${view.state}`;
+  if (texts === lastTexts) return;
+  lastTexts = texts;
   statusItem.button.setToolTip(`JarvisVoice：${hint || label()}`);
   statusLine.setTitle(label());
   toggleItem.setTitle(view.state === 'paused' ? t('繼續收音', 'Resume listening') : t('暫停收音', 'Pause listening'));
@@ -279,12 +359,16 @@ function onLine(line) {
     refresh();
   } else if (event.type === 'state') {
     view = { state: event.state, message: event.message || '', engine: event.engine || view.engine };
-    if (view.state !== 'listening') hearing = false;
+    if (view.state !== 'listening') { hearing = false; working = false; }
     refresh();
   } else if (event.type === 'hud') {
-    // 常駐程式的即時狀態：hearing／listening（有沒有聽到人聲）、pasted、nofield
-    if (event.line === 'hearing') { hearing = true; refresh(); }
+    // 常駐程式的即時狀態：hearing／listening（有沒有聽到人聲）、level:<0–1>（說話中的音量）、
+    // working／idle（辨識中開始、結束）、pasted、nofield
+    if (event.line.startsWith('level:')) { level = Number(event.line.slice(6)) || 0; levelAt = Date.now(); }
+    else if (event.line === 'hearing') { hearing = true; refresh(); }
     else if (event.line === 'listening') { hearing = false; refresh(); }
+    else if (event.line === 'working') { working = true; refresh(); }
+    else if (event.line === 'idle') { working = false; refresh(); }
     else if (event.line === 'pasted') showFlash('pasted', 1200);
     else if (event.line === 'nofield') showFlash('nofield', 1800);
   }
@@ -308,6 +392,8 @@ function scheduleRestart(seconds) {
 function onEnded() {
   const waitOther = view.state === 'already-running';
   task = null;
+  hearing = false;
+  working = false;
   if (quitting) return;
   if (!waitOther) view = { ...view, state: 'off', message: '' };
   refresh();
@@ -388,6 +474,7 @@ ObjC.registerSubclass({
     'restart:': { types: ['void', ['id']], implementation() { startListener(); } },
     'dumpFrame:': { types: ['void', ['id']], implementation() { dumpFrame(); } },
     'flashEnd:': { types: ['void', ['id']], implementation() { if (flash && Date.now() >= flash.until) { flash = null; refresh(); } } },
+    'animate:': { types: ['void', ['id']], implementation() { refresh(); } },
   },
 });
 

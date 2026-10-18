@@ -100,9 +100,10 @@ function releaseLock() {
 let stopping = false;
 let hudMode = '';
 
-// 交給選單列小程式（--app 時從 stdout 送出）；hearing、listening、hide、error:<訊息>、pasted、nofield
+// 交給選單列小程式（--app 時從 stdout 送出）；hearing、listening、hide、error:<訊息>、pasted、nofield、
+// level:<0–1>（說話中的音量，每 0.1 秒）、working／idle（辨識中開始、結束）
 function hudWrite(line) {
-  if (appMode) emit({ type: 'hud', line });
+  if (appMode || process.env.VOICE_DICTATION_HUD) emit({ type: 'hud', line }); // VOICE_DICTATION_HUD：測試看選單列收到什麼
 }
 
 function hudShow(mode) {
@@ -235,6 +236,9 @@ let sentSamples = 0;
 let lastSpeechAt = 0;
 let lastVoiceAt = 0; // 最後一次真的聽到人聲（算一段講完了沒）
 let turnPeak = 0; // 這一句的最大音量（記 log 用）
+let batchRms = 0; // 最近一批（0.1 秒）的音量，說話中送給選單列畫聲波
+// 音量換成 0–1 給選單列：-50 dB 以下是 0、-10 dB 以上是 1
+const levelOf = (rms) => Math.min(1, Math.max(0, (20 * Math.log10(Math.max(rms, 1e-6)) + 50) / 40));
 
 // 講話中的音訊邊講邊交給引擎（雲端引擎會先送出去），講完一句再 commit
 const stageAudio = () => {
@@ -256,7 +260,9 @@ let reopenCapture = false;
 let levelSince = Date.now();
 function trackLevel(samples) {
   let peak = 0;
-  for (const v of samples) { const a = Math.abs(v) / 32768; if (a > peak) peak = a; }
+  let sum = 0;
+  for (const v of samples) { const a = Math.abs(v) / 32768; if (a > peak) peak = a; sum += a * a; }
+  batchRms = Math.sqrt(sum / samples.length);
   if (peak > levelPeak) levelPeak = peak;
   if (Date.now() - levelSince < 15_000) return peak;
   const notes = [];
@@ -293,6 +299,7 @@ function takeBatch(chunk) {
   if ((detector.speaking || turn) && detector.lastVoiced) lastVoiceAt = Date.now();
   if (detector.speaking || turn) turnPeak = Math.max(turnPeak, peak);
   if (detector.speaking !== wasSpeaking && state === 'listening') hudShow(detector.speaking ? 'hearing' : 'listening');
+  if (detector.speaking && state === 'listening') hudWrite(`level:${levelOf(batchRms).toFixed(2)}`);
   if (turn) {
     log(`切出一句 ${((turn.endMs - turn.startMs) / 1000).toFixed(1)} 秒（最大音量 ${turnPeak.toFixed(3)}${turnPeak >= 0.99 ? '，爆音' : ''}），送去轉寫`);
     turnPeak = 0;
@@ -376,6 +383,15 @@ function addToSegment(text) {
   segment ??= { parts: [], chars: 0 };
   segment.parts.push(text);
   segment.chars += text.length;
+}
+
+// 辨識中（選單列的循環箭頭在轉）：有句子在轉寫、一段還在等整理、或整理好還沒寫進去
+let working = false;
+function updateWorking() {
+  const now = !!(engine?.busy() || segment || outputQueue.length || outputBusy);
+  if (now === working) return;
+  working = now;
+  hudWrite(now ? 'working' : 'idle');
 }
 
 // 每句都已經轉完、而且停了夠久，才算一段講完
@@ -761,7 +777,7 @@ async function main() {
   process.on('exit', releaseLock);
   setState('standby');
   startEngine();
-  setInterval(checkSegment, SEGMENT_CHECK_MS);
+  setInterval(() => { checkSegment(); updateWorking(); }, SEGMENT_CHECK_MS);
 
   if (inputFile) {
     startCapture();

@@ -50,14 +50,15 @@ The AI will:
 
 ## Everyday use
 
-- **Menu bar icon**: a circular arrow around three sound bars (automatic + voice). It keeps a fixed width and the same color as your other menu bar icons; only the inside changes:
-  - Three bars: listening.
-  - Taller bars: hearing you speak.
+- **Menu bar icon**: normally the JarvisVoice mark (a circular arrow around three sound bars: automatic + voice); when something happens the whole icon switches to a large symbol, so you can tell what's going on at a glance. It keeps a fixed width and the same color as your other menu bar icons:
+  - The mark: listening.
+  - Five bars moving with your voice: hearing you speak.
+  - The circular arrow spinning: transcribing (from when you stop until the text is pasted: transcription plus AI cleanup).
   - Check mark: just pasted.
   - Cross: nothing was written (the cursor wasn't in a text field and no field was found), or a voice command didn't finish.
-  - Faded bars: standing by (the frontmost app is excluded).
-  - A microphone with a slash through it (like a "no" sign): paused, not listening.
-  - Exclamation mark: something went wrong; open the menu to see why.
+  - Faded mark: standing by (the frontmost app is excluded).
+  - The mark with a slash through it (like a "no" sign): paused, not listening.
+  - Triangle with an exclamation mark: something went wrong; open the menu to see why.
 - **When the cursor isn't in a text field** (you're reading a web page, selecting files in Finder): with auto-focus off, nothing is written, the icon briefly shows a cross, and "Copy last sentence" in the menu gets the text back; with auto-focus on, it picks the right field in the window and writes there.
 - **Meetings**: it doesn't listen while Zoom, Teams, FaceTime or Webex is frontmost. If people are talking nearby or a video is playing, choose "Pause listening" in the menu.
 - **Menu**: pause/resume, copy last sentence, revert to the raw transcript, AI cleanup (off / OpenAI / DeepSeek / Claude), auto-focus, voice commands, edit vocabulary, edit config, help, quit.
