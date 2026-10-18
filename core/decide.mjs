@@ -118,10 +118,10 @@ export function stepQuestions(elements, win) {
   return {
     action: {
       type: 'choice',
-      instructions: '要達成 `goal`，看 `screen`（目前畫面上可以操作的東西，包括截圖認出來的字）和 `done_steps`（已經做過的步驟），下一步要做什麼？要找的東西不在 `screen` 上時，先用搜尋：有搜尋框就填 `text`，沒有就點「搜尋／Search」按鈕把搜尋框叫出來。搜尋框裡已經有 `text`、畫面上也列出結果時，下一步是點結果裡名字對得上的那一個（例如人名、對話名稱、股票），不是再點搜尋框，也不要按 Enter 期待它自己打開。',
+      instructions: '要達成 `goal`，看 `screen`（目前畫面上可以操作的東西，包括截圖認出來的字）和 `done_steps`（已經做過的步驟），下一步要做什麼？要找的東西不在 `screen` 上時，先用搜尋：有搜尋框就填 `text`，沒有就點「搜尋／Search」按鈕把搜尋框叫出來。`text` 是網址（例如 mail.google.com）而且在瀏覽器裡：畫面上有直接通往 `goal` 的連結就點它，沒有就在瀏覽器的網址列（網址與搜尋列）填 `text`，再按 Enter。搜尋框裡已經有 `text`、畫面上也列出結果時，下一步是點結果裡名字對得上的那一個（例如人名、對話名稱、股票），不是再點搜尋框，也不要按 Enter 期待它自己打開。',
       criteria: {
         click: '點畫面上的某個按鈕、連結、分頁、清單項目或截圖認出來的字（包括把搜尋框叫出來的「搜尋／Search」按鈕、搜尋結果裡的人名）',
-        fill: '在某個輸入框（多半是搜尋框）填入 `text`',
+        fill: '在某個輸入框填入 `text`（多半是搜尋框；`text` 是網址時是瀏覽器的網址列）',
         enter: '在剛填好字的輸入框按 Enter（送出搜尋）',
         write: '已經打開和對的人的對話：在訊息框寫入 `message`（只有 `message` 有字時才用；不送出）',
         done: '目標已經達成：畫面已經是使用者要的',
@@ -130,7 +130,7 @@ export function stepQuestions(elements, win) {
     },
     target: {
       type: 'choice',
-      instructions: '要點或要填的是哪一個？（action 是 click 或 fill 時才用得到）名字要對得上 `goal` 講的那個項目；要找的項目不在 `screen` 上時，選搜尋框或「搜尋／Search」按鈕。',
+      instructions: '要點或要填的是哪一個？（action 是 click 或 fill 時才用得到）名字要對得上 `goal` 講的那個項目；要找的項目不在 `screen` 上時，選搜尋框或「搜尋／Search」按鈕；`text` 是網址時選瀏覽器的網址列。',
       criteria,
     },
   };

@@ -29,7 +29,7 @@ import { createBatchEngine } from './engines/batch.mjs';
 import { createLocalEngine } from './engines/local.mjs';
 import { createRealtimeEngine, openaiConnector, parallelSandboxConnector } from './engines/realtime.mjs';
 import { appendHistory } from './history.mjs';
-import { createDecider, describeElement, fieldQuestions, inFieldIntentQuestion, inFieldVerdict, referenceQuestion } from './decide.mjs';
+import { createDecider, describeElement, fieldQuestions, inFieldIntentQuestion, inFieldVerdict, intentQuestion, referenceQuestion } from './decide.mjs';
 import { createLearner } from './learn.mjs';
 import { createVocabAuto } from './vocab-auto.mjs';
 import { rankTargets } from './targeter.mjs';
@@ -45,6 +45,7 @@ const POLL_MS = 500;
 const SEGMENT_CHECK_MS = 100;
 const HOLD_MS = 60_000; // 寫的時候前景是不收音的 app（例如開會），最多等一分鐘回來再寫
 const MAX_SEGMENT_CHARS = 1500; // 一直講不停太長就先整理這一段
+const NOT_IN_FIELD_SURE = 0.95; // 游標不在輸入框、AI 說是打字時，Jev 要這麼確定是指令才改當指令
 
 const argv = process.argv.slice(2);
 const fileIndex = argv.indexOf('--file');
@@ -499,7 +500,9 @@ async function judgeInField(raw, front, ctx) {
 }
 
 // AI 整理。是不是指令：
-//   游標不在輸入框：照 AI 整理的判斷（實測只用 AI 40/40；再要 Jev 也同意，反而會擋掉「傳訊息給某人」）；
+//   游標不在輸入框：照 AI 整理的判斷（實測只用 AI 40/40；再要 Jev 也同意，反而會擋掉「傳訊息給某人」）。
+//     只有一個例外是單向的：AI 說是打字、Jev 很確定是要操作畫面（≥ 0.95）時改當指令——同一句「開啟我的 email」
+//     AI 有時判成打字，游標不在輸入框就會被貼進這個視窗上次寫的地方（10/19 貼進 Threads 的發文框）；
 //   游標在輸入框：開了指令模式而且有 Jev，同時問 Jev（不多花時間），Jev 看了畫面很確定是要操作畫面才算
 //   （這時再請 AI 拆出目標和要搜尋的字）；AI 說是指令但 Jev 說不是就當成打字，傳訊息給某人除外。
 //   沒有 Jev 就照 AI 整理的判斷（只有開頭講「指令」或傳訊息才算）。
@@ -507,8 +510,14 @@ async function judgeInField(raw, front, ctx) {
 async function aiEdit(raw, front, ctx) {
   if (!aiReady()) return null;
   const inField = !!ctx?.field.editable;
-  const judge = commandsOn() && config.jev.apiKey && front.pid && inField
+  const jevOn = commandsOn() && config.jev.apiKey && front.pid;
+  const judge = jevOn && inField
     ? judgeInField(raw, front, ctx).catch((err) => { log(`Jev 判斷指令失敗：${err.message}`); return null; })
+    : null;
+  // 游標不在輸入框：同時問 Jev 是不是指令（不多花時間），只在 AI 說是打字時才用得到
+  const intent = jevOn && !inField
+    ? decider.decide({ transcript: raw, app: ctx?.app ?? '', window: ctx?.window ?? '', field: '' }, { intent: intentQuestion() })
+      .then((a) => a.intent?.probabilities?.command ?? 0, (err) => { log(`Jev 判斷指令失敗：${err.message}`); return null; })
     : null;
   const edit = (transcript) => editSegment({
     ...aiSettings(),
@@ -529,6 +538,16 @@ async function aiEdit(raw, front, ctx) {
     if (result.mode === 'command' && verdict && !verdict.isCommand && !/^\s*(指令|command)/i.test(raw) && !result.message?.trim()) {
       log('AI 說是指令、Jev 說不是：當成要打的字，貼原稿');
       return null;
+    }
+    if (result.mode !== 'command' && intent) {
+      const p = await intent;
+      if (p !== null && p >= NOT_IN_FIELD_SURE) {
+        const forced = await edit(`指令，${raw}`);
+        if (forced.mode === 'command') {
+          log(`游標不在輸入框，AI 說是打字、Jev 確定是要操作畫面（${p.toFixed(2)}）：當成指令（${forced.goal}）`);
+          return forced;
+        }
+      } else if (p !== null) log(`游標不在輸入框，Jev 覺得是指令的機率 ${p.toFixed(2)}：照 AI 當成打字`);
     }
     if (result.mode !== 'command' && inField && verdict?.isCommand) {
       // Jev 看了畫面很確定是要操作：照「指令，……」再請 AI 拆一次目標和要搜尋的字

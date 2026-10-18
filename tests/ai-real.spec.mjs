@@ -27,6 +27,15 @@ const CLEAN = [
   ['呃這個 bug 嗯就是 deploy 之後才出現的。', [/bug/, /deploy/], [/呃|嗯/]],
   ['我我我覺得這樣可以。', [/^我覺得這樣可以/], []],
 ];
+// 指令模式、游標不在輸入框（Chrome 開著 Threads）：開網站要帶網址，原本的搜尋、傳訊息照舊，一般的話照樣是打字
+const COMMANDS = [
+  ['開啟我的 email。', 'command', { text: /mail\.google\.com/ }],
+  ['打開 YouTube。', 'command', { text: /youtube\.com/i }],
+  ['進到台積電的個股頁。', 'command', { text: /台積電/ }],
+  ['幫我傳給 BU 說你好。', 'command', { text: /BU/, message: /你好/ }],
+  ['明天四點開會記得帶筆電。', 'insert', { text: /開會/ }],
+];
+const browser = { app: 'Google Chrome', bundle: 'com.google.Chrome', window: 'Threads', url: 'https://www.threads.com/', field: { known: true, editable: false } };
 const context = { app: 'Claude', bundle: 'com.anthropic.claudefordesktop', window: 'Claude', field: { role: 'AXTextArea', editable: true, known: true, before: '', after: '' } };
 
 for (const provider of ['deepseek', 'openai', 'claude']) {
@@ -52,5 +61,15 @@ for (const provider of ['deepseek', 'openai', 'claude']) {
     }
     const r = await edit('呃，嗯。');
     assert.ok(!r.text.replace(/[嗯呃，。\s]/g, ''), `只有語氣詞 → ${r.text}`);
+  });
+
+  test(`真模型 ${provider}：游標不在輸入框時，開網站帶網址、搜尋與傳訊息照舊、一般的話是打字`, { skip, timeout: 240_000 }, async () => {
+    for (const [transcript, mode, expect] of COMMANDS) {
+      for (let i = 0; i < ROUNDS; i += 1) {
+        const r = await editSegment({ provider, apiKey, timeoutMs: 15000, transcript, context: browser, commands: true });
+        assert.equal(r.mode, mode, `${transcript} → ${r.mode}`);
+        for (const [field, re] of Object.entries(expect)) assert.match(r[field] ?? '', re, `${transcript} → ${field}=${r[field]}`);
+      }
+    }
   });
 }
