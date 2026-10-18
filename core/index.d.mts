@@ -8,7 +8,7 @@ export interface Answer { type?: string; choice?: string; confidence?: number; n
 export interface Field { known?: boolean; editable?: boolean; role?: string; subrole?: string; label?: string; before?: string; after?: string; selected?: string; secure?: boolean }
 export interface EditContext { app?: string; bundle?: string; window?: string; url?: string; screen?: string; field?: Field }
 export type EditMode = 'insert' | 'replace_selection' | 'delete_last' | 'revert_last' | 'command';
-export interface EditResult { mode: EditMode; text: string; goal?: string; app?: string; message?: string; ms: number }
+export interface EditResult { mode: EditMode; text: string; goal?: string; app?: string; message?: string; /** 模型把不只語氣詞的話整理成空的，text 改回原稿 */ keptRaw?: boolean; ms: number }
 
 export const MODES: EditMode[];
 export const SCHEMA: object;
@@ -72,10 +72,12 @@ export function createVocabAuto(input: { log?: (m: string) => void; store: Vocab
 export class AudioTurnDetector {
   readonly speaking: boolean;
   lastVoiced: boolean;
+  shortBlips: number;
   push(samples: Int16Array, startMs: number): { startMs: number; endMs: number } | null;
   finish(): { startMs: number; endMs: number } | null;
 }
 export function isSpeech(text: string): boolean;
+export function onlyFiller(text: string): boolean;
 export function withSpacing(text: string): string;
 
 export const PROVIDERS: string[];

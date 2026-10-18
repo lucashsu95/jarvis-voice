@@ -6,7 +6,7 @@ const require = createRequire(import.meta.url);
 let toTaiwan = null;
 let toSimplified = null;
 
-export { isSpeech, withSpacing } from '../core/text.mjs';
+export { isSpeech, onlyFiller, withSpacing } from '../core/text.mjs';
 
 function convert(text, output) {
   if (output === 'traditional') {

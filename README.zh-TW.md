@@ -188,6 +188,8 @@ npm install
 npm test                                  # 不送按鍵、不搶前景
 VOICE_DICTATION_FOCUS_TESTS=1 npm test    # 再加跑「測試視窗在最前面時真的貼得進去、換得回來」（會搶前景約 2 秒）
 TYPESAFE_API_KEY=... npm test             # 再加跑真的 Jev 操作測試用看盤視窗
+VOICE_DICTATION_REAL_AI=1 npm test        # 再加跑三家真模型的 AI 整理（招呼、一個字、髒話照留；贅字、改口照樣整理），用設定檔的 key
+VOICE_DICTATION_E2E=1 npm test            # 再加跑真的講話：say 念句子 → 轉寫 → AI 整理 → 貼進測試視窗，讀視窗裡的字比對（會打雲端、搶前景；每句等鍵盤滑鼠停 3 秒才開始）
 ```
 
 ## 解除安裝

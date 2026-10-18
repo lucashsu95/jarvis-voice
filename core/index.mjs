@@ -12,7 +12,7 @@ export { usable, score as fieldScore, rankTargets } from './targeter.mjs';
 export { extractEdited, replacedChunks, createLearner } from './learn.mjs';
 export { AUTO_HEADER, splitVocabulary, plausibleTerm, score as vocabScore, createVocabAuto } from './vocab.mjs';
 export { AudioTurnDetector } from './turns.mjs';
-export { isSpeech, withSpacing } from './text.mjs';
+export { isSpeech, onlyFiller, withSpacing } from './text.mjs';
 export { PROVIDERS, DEFAULT_MODELS, PROVIDER_NAMES, DEFAULT_URLS, ownKeyService } from './providers.mjs';
 
 export const CORE_VERSION = '1.0.0';

@@ -9,6 +9,7 @@ export class AudioTurnDetector {
   activeStart = null;
   lastVoiceEnd = 0;
   lastVoiced = false; // 最近一批有沒有人聲（算「停了多久」用）
+  shortBlips = 0; // 有聲音但不到 180 ms、沒算成一句的次數（給呼叫端記 log，自己歸零）
 
   get speaking() { return this.activeStart !== null; }
 
@@ -33,6 +34,7 @@ export class AudioTurnDetector {
       return null;
     }
     if (this.activeStart === null) {
+      if (this.voicedMs > 0) this.shortBlips += 1;
       this.candidateStart = null;
       this.voicedMs = 0;
       return null;
@@ -47,6 +49,7 @@ export class AudioTurnDetector {
       this.activeStart = this.candidateStart;
     }
     if (this.activeStart !== null) return this.takeTurn();
+    if (this.voicedMs > 0) this.shortBlips += 1;
     this.candidateStart = null;
     this.voicedMs = 0;
     this.silenceMs = 0;

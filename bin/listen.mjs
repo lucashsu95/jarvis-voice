@@ -14,7 +14,8 @@
 // 狀態寫在 status.json 給狀態列讀；有 paused 檔就暫停；有 revert-request 檔就把上一段換回原稿。
 // stdout 每行一個 JSON（state、settings、hud、pasted、skipped）。
 // 選項：--app 由選單列小程式帶起（log 寫進 listen.log，小程式不在了就結束）。
-// 測試選項：--file <音檔> 用音檔代替麥克風、讀完收尾結束；--dry-paste 只印不貼；--always 不看前景 app。
+// 測試選項：--file <音檔> 用音檔代替麥克風、讀完收尾結束；--dry-paste 只印不貼；--always 不看前景 app；
+// --pid <pid> 配 --file：只寫進這個 app（端到端測試的測試視窗），讀它的上下文、它到最前面才貼，不會貼到別的 app。
 
 import { execFile, spawn } from 'node:child_process';
 import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
@@ -51,6 +52,8 @@ const fileIndex = argv.indexOf('--file');
 const inputFile = fileIndex >= 0 ? argv[fileIndex + 1] : null;
 const dryPaste = argv.includes('--dry-paste');
 const always = argv.includes('--always') || !!inputFile;
+const pidIndex = argv.indexOf('--pid');
+const targetPid = inputFile && pidIndex >= 0 ? Number(argv[pidIndex + 1]) : 0;
 const appMode = argv.includes('--app');
 const parentPid = process.ppid;
 
@@ -151,8 +154,11 @@ function startEngine() {
         replacements: config.replacements,
         alreadyTraditional: config.engine === 'parallelsandbox',
       });
-      log(`轉寫結果：${text || '（空的）'}`);
-      if (!isSpeech(text)) return;
+      if (!isSpeech(text)) {
+        log(`轉寫結果：${text ? `「${text}」只有標點` : '（空的）'}，這句沒有字，不寫`);
+        return;
+      }
+      log(`轉寫結果：${text}`);
       if (aiReady()) addToSegment(text);
       else enqueueOutput({ kind: 'text', text });
     },
@@ -228,6 +234,7 @@ let carry = Buffer.alloc(0);
 let sentSamples = 0;
 let lastSpeechAt = 0;
 let lastVoiceAt = 0; // 最後一次真的聽到人聲（算一段講完了沒）
+let turnPeak = 0; // 這一句的最大音量（記 log 用）
 
 // 講話中的音訊邊講邊交給引擎（雲端引擎會先送出去），講完一句再 commit
 const stageAudio = () => {
@@ -242,23 +249,32 @@ const queueTurn = () => {
   engine.commit();
 };
 
-// 診斷：每 15 秒記一次這段時間的最大音量，看麥克風到底有沒有收到聲音（全 0＝沒權限或被別的程式占住）
+// 診斷：每 15 秒記一次這段時間的最大音量，看麥克風到底有沒有收到聲音（全 0＝沒權限或被別的程式占住）、
+// 有沒有爆音、有幾次太短的聲音沒算成一句
 let levelPeak = 0;
 let reopenCapture = false;
 let levelSince = Date.now();
 function trackLevel(samples) {
-  for (const v of samples) { const a = Math.abs(v) / 32768; if (a > levelPeak) levelPeak = a; }
-  if (Date.now() - levelSince < 15_000) return;
-  log(`麥克風 15 秒內最大音量 ${levelPeak.toFixed(3)}（人聲門檻 0.055）${levelPeak === 0 ? '：完全沒聲音，多半是剛給麥克風權限前就開了，重開麥克風' : ''}`);
+  let peak = 0;
+  for (const v of samples) { const a = Math.abs(v) / 32768; if (a > peak) peak = a; }
+  if (peak > levelPeak) levelPeak = peak;
+  if (Date.now() - levelSince < 15_000) return peak;
+  const notes = [];
+  if (levelPeak === 0) notes.push('完全沒聲音，多半是剛給麥克風權限前就開了，重開麥克風');
+  if (levelPeak >= 0.99) notes.push('有爆音（音量到頂），轉寫可能會錯');
+  if (detector.shortBlips) notes.push(`${detector.shortBlips} 次聲音不到 0.18 秒，當雜音沒算成一句`);
+  log(`麥克風 15 秒內最大音量 ${levelPeak.toFixed(3)}（人聲門檻 0.055）${notes.length ? `：${notes.join('；')}` : ''}`);
   // 權限詢問還沒按允許時開的麥克風，允許之後也一直收到 0：重開一次就好
   if (levelPeak === 0) reopenCapture = true;
+  detector.shortBlips = 0;
   levelPeak = 0;
   levelSince = Date.now();
+  return peak;
 }
 
 function takeBatch(chunk) {
   const samples = new Int16Array(chunk.buffer, chunk.byteOffset, chunk.length / 2);
-  trackLevel(samples);
+  const peak = trackLevel(samples);
   const startMs = sentSamples / 24;
   sentSamples += samples.length;
   const wasSpeaking = detector.speaking;
@@ -275,9 +291,11 @@ function takeBatch(chunk) {
   }
   if (detector.speaking) lastSpeechAt = Date.now();
   if ((detector.speaking || turn) && detector.lastVoiced) lastVoiceAt = Date.now();
+  if (detector.speaking || turn) turnPeak = Math.max(turnPeak, peak);
   if (detector.speaking !== wasSpeaking && state === 'listening') hudShow(detector.speaking ? 'hearing' : 'listening');
   if (turn) {
-    log(`切出一句 ${((turn.endMs - turn.startMs) / 1000).toFixed(1)} 秒，送去轉寫`);
+    log(`切出一句 ${((turn.endMs - turn.startMs) / 1000).toFixed(1)} 秒（最大音量 ${turnPeak.toFixed(3)}${turnPeak >= 0.99 ? '，爆音' : ''}），送去轉寫`);
+    turnPeak = 0;
     queueTurn();
   }
 }
@@ -288,9 +306,11 @@ function finishTurn() {
   carry = Buffer.alloc(0);
   const turn = detector.finish();
   if (turn) {
+    log(`麥克風停了，講到一半的那句（${((turn.endMs - turn.startMs) / 1000).toFixed(1)} 秒）送去轉寫`);
     for (const b of preRoll) { pendingChunks.push(b); pendingBytes += b.length; }
     queueTurn();
   }
+  turnPeak = 0;
   preRoll = [];
   pendingChunks = [];
   pendingBytes = 0;
@@ -497,6 +517,7 @@ async function aiEdit(raw, front, ctx) {
     const verdict = judge ? await judge : null;
     const jevNote = verdict ? `；Jev：是指令的機率 ${verdict.command.toFixed(2)}${verdict.named ? `，講到「${verdict.named.label}」` : ''}` : '';
     log(`AI 整理（${result.model}，${result.ms} ms，${result.mode}）：${result.mode === 'command' ? result.goal : result.text || '（無）'}${jevNote}`);
+    if (result.keptRaw) log('AI 把不只語氣詞的話整理成空的：照原稿寫');
     // AI 說是指令、Jev 說不是：當成要打的字（開頭講「指令」或「command」的照 AI）
     if (result.mode === 'command' && verdict && !verdict.isCommand && !/^\s*(指令|command)/i.test(raw)) {
       log('AI 說是指令、Jev 說不是：當成要打的字，貼原稿');
@@ -597,7 +618,7 @@ async function deliver(item, front) {
   }
   if (result?.mode === 'insert' && !result.text.trim()) {
     writeLast(raw);
-    log('AI 整理後沒有要寫的字（只有贅字或雜音），不寫：', raw);
+    log('整段只有語氣詞，不寫：', raw);
     return '';
   }
   if (!inField) {
@@ -663,7 +684,7 @@ async function drainOutput() {
         log('一分鐘內都寫不進去（前景是不收音的 app，或沒有輔助使用權限），丟掉一段：', item.text ?? item.raw ?? '');
         continue;
       }
-      const front = always ? { bundle: '', pid: 0 } : await frontApp();
+      const front = targetPid ? { bundle: '', pid: targetPid } : always ? { bundle: '', pid: 0 } : await frontApp();
       if (!always && !allowed(front.bundle)) break;
       outputQueue.shift();
       let outcome = '';
@@ -753,6 +774,7 @@ async function main() {
     while (Date.now() < until && (engine.busy() || segment || outputQueue.length || outputBusy)) {
       engine.flush();
       if (!engine.busy()) segmentForce = true;
+      void drainOutput(); // 寫不進去（不在最前面）的那段，等一下再試
       await new Promise((r) => setTimeout(r, 200));
     }
     clearInterval(timer);

@@ -26,6 +26,40 @@ test('核心的 AI 整理：模型由外面傳 complete 進來', async () => {
   await assert.rejects(core.editSegment({ complete: async () => 'not json', transcript: 'x' }), /格式不對/);
 });
 
+test('只有語氣詞才算沒有要寫的字；模型把真的話整理成空的，照原稿寫', async () => {
+  for (const t of ['嗯。', '呃，嗯', '啊啊', 'um', 'Uh, umm.', 'hmm…', '', '。']) assert.equal(core.onlyFiller(t), true, t);
+  for (const t of ['哈囉，哈囉，哈囉。', 'Hello, hello.', '測試', '好。', '嗯，好。', 'value.', '他媽的', 'umbrella']) assert.equal(core.onlyFiller(t), false, t);
+  const empty = async () => '{"mode":"insert","text":"","goal":"","app":"","message":""}';
+  const kept = await core.editSegment({ complete: empty, transcript: '哈囉，哈囉，哈囉。' });
+  assert.equal(kept.text, '哈囉，哈囉，哈囉。');
+  assert.equal(kept.keptRaw, true);
+  const filler = await core.editSegment({ complete: empty, transcript: '嗯。' });
+  assert.equal(filler.text, '');
+  assert.equal(filler.keptRaw, undefined);
+});
+
+test('整理規則：只刪贅字和結巴，髒話、刻意重複、招呼和一兩個字的回答照留；只有語氣詞才給空字串', () => {
+  const { system } = core.buildPrompt({ transcript: 'x' });
+  assert.match(system, /髒話、粗話（例如「幹」「他媽的」「靠」「fuck」）照原樣留著/);
+  assert.match(system, /刻意重複的話（例如「哈囉，哈囉，哈囉」「測試，測試」「好好好」）照原樣留著/);
+  assert.match(system, /只有整段都是語氣詞（例如「嗯」「呃，嗯」「um」），沒有任何別的字，text 才給空字串/);
+  assert.doesNotMatch(system, /聽不出意思的片段/);
+});
+
+test('斷句：有聲音但不到 180 ms 的不算一句，記下次數給 log 用', () => {
+  const d = new core.AudioTurnDetector();
+  const loud = new Int16Array(2400).fill(8000);
+  const quiet = new Int16Array(2400);
+  d.push(loud, 0);
+  d.push(quiet, 100);
+  assert.equal(d.shortBlips, 1);
+  assert.equal(d.speaking, false);
+  d.push(loud, 200);
+  d.push(loud, 300);
+  assert.equal(d.speaking, true);
+  assert.equal(d.shortBlips, 1);
+});
+
 test('核心的決策器：有 Jev 用 Jev；Jev 拿不準時改問 AI；都沒有就說做不了', async () => {
   const jev = async () => ({ intent: { choice: 'command', confidence: 0.9 } });
   const complete = async () => '{"answers":{"intent":{"choice":"dictation","confidence":0.8},"bad":{"choice":"zzz"}}}';

@@ -188,6 +188,8 @@ npm install
 npm test                                  # never sends keystrokes or takes focus
 VOICE_DICTATION_FOCUS_TESTS=1 npm test    # also checks real pasting and reverting with the test window frontmost (takes focus for ~2 s)
 TYPESAFE_API_KEY=... npm test             # also lets the real Jev drive the stock-app test window
+VOICE_DICTATION_REAL_AI=1 npm test        # also runs AI cleanup against all three real providers (greetings, one-word replies and swearing kept; filler and self-corrections still cleaned), using the keys in your config
+VOICE_DICTATION_E2E=1 npm test            # also runs real speech end to end: say speaks sentences -> transcription -> AI cleanup -> pasted into the test window, then reads the window back (calls the cloud, takes focus; waits for 3 s of no keyboard or mouse before each sentence)
 ```
 
 ## Uninstall

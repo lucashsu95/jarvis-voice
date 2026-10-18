@@ -8,30 +8,11 @@ import { after, test } from 'node:test';
 import { createAx } from '../bin/ax.mjs';
 import { runCommand } from '../bin/commander.mjs';
 import { createDecider } from '../bin/decide.mjs';
+import { bringToFront, sendToBack, startBundle } from './fixtures/front.mjs';
 
 const ax = createAx();
 after(() => ax.close());
 
-// macOS 新開的視窗會不會跑到最前面不一定：要在背景的就把原本的 app 叫回來，要在前景的就用 AX 設成最前面，等確定了再動作
-const lsappinfo = (...args) => execFileSync('/usr/bin/lsappinfo', args).toString();
-const frontInfo = () => lsappinfo('info', '-only', 'bundleid', '-only', 'pid', lsappinfo('front').trim());
-const frontPid = () => Number(frontInfo().match(/"pid"=(\d+)/)?.[1] ?? 0);
-const startBundle = frontInfo().match(/"CFBundleIdentifier"="([^"]*)"/)?.[1];
-async function waitFront(check) {
-  for (let i = 0; i < 30 && !check(frontPid()); i += 1) await new Promise((r) => setTimeout(r, 100));
-  return check(frontPid());
-}
-async function sendToBack(pid) {
-  if (startBundle) execFileSync('/usr/bin/open', ['-b', startBundle]);
-  return waitFront((p) => p !== pid);
-}
-async function bringToFront(pid) {
-  execFileSync('/usr/bin/osascript', ['-l', 'JavaScript', '-e', `ObjC.import('ApplicationServices');
-    ObjC.bindFunction('AXUIElementCreateApplication', ['id', ['int']]);
-    ObjC.bindFunction('AXUIElementSetAttributeValue', ['int', ['id', 'id', 'id']]);
-    $.AXUIElementSetAttributeValue($.AXUIElementCreateApplication(${pid}), $('AXFrontmost'), $.NSNumber.numberWithBool(true));`]);
-  return waitFront((p) => p === pid);
-}
 const trusted = process.platform === 'darwin' && (await ax.call('check', { ask: false }).catch(() => ({}))).trusted;
 
 test('AX 小幫手：讀上下文、找輸入框、對焦、列元件；不在前景不貼', { skip: !trusted && '沒有輔助使用權限', timeout: 30_000 }, async () => {

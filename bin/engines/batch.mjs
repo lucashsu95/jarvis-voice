@@ -31,14 +31,17 @@ export function createBatchEngine({ apiKey, model = 'gpt-transcribe', languages 
   let deliverSeq = 0;
   let inflight = 0;
   let closed = false;
-  const results = new Map(); // seq → 字（失敗是空字串）
+  const results = new Map(); // seq → 字；失敗是 null（錯誤已經記過）
 
+  // 照講的順序交出去；轉出空字串也交（listen 會記「轉寫結果：（空的）」），每一句的下落都看得到
   function deliver() {
     while (results.has(deliverSeq)) {
       const text = results.get(deliverSeq);
       results.delete(deliverSeq);
       deliverSeq += 1;
-      if (text && !closed) onFinal(text);
+      if (text === null) continue;
+      if (closed) log(`轉寫引擎已經換掉，這句沒寫：${text || '（空的）'}`);
+      else onFinal(text);
     }
   }
 
@@ -83,9 +86,9 @@ export function createBatchEngine({ apiKey, model = 'gpt-transcribe', languages 
       log(`OpenAI 一般轉寫 ${((wav.length - 44) / 48000).toFixed(1)} 秒音訊用 ${Date.now() - started} ms`);
       results.set(seq, text);
     } catch (err) {
-      log(err.message);
+      log(`${err.message}（這句沒寫）`);
       onError(err.message);
-      results.set(seq, '');
+      results.set(seq, null);
     } finally {
       inflight -= 1;
       deliver();
@@ -102,7 +105,10 @@ export function createBatchEngine({ apiKey, model = 'gpt-transcribe', languages 
         onError('沒有 OpenAI API key（設定檔 openai.apiKey、openai.apiKeyFile，或環境變數 OPENAI_API_KEY）');
         return;
       }
-      if (pcm.length < MIN_BYTES) return;
+      if (pcm.length < MIN_BYTES) {
+        log(`這句只有 ${(pcm.length / 48000).toFixed(2)} 秒，當雜音沒送轉寫`);
+        return;
+      }
       void run(nextSeq++, wavFromPcm16(pcm));
     },
     flush() {},

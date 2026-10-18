@@ -92,11 +92,12 @@ export function createRealtimeEngine({ connector, onFinal, onError, log }) {
         return;
       case 'conversation.item.input_audio_transcription.failed':
         if (event.item_id) waitingFinal.delete(event.item_id);
-        log('一句轉寫失敗', event.error?.message ?? '');
+        log('一句轉寫失敗，這句沒寫：', event.error?.message ?? '');
         return;
       case 'error':
         if (event.error?.code === 'input_audio_buffer_commit_empty') {
           if (pendingCommits > 0) pendingCommits -= 1;
+          log('這句送出時沒有音訊，沒有轉寫');
           return;
         }
         log('轉寫錯誤', event.error?.message ?? '');

@@ -60,7 +60,7 @@ test('AI 整理的提示：上下文都放進去、游標欄位一定有；開�
   assert.match(empty.user, /<field><\/field>/);
 });
 
-test('AI 回的 JSON：格式不對、改寫選取卻給空字、沒開指令模式卻回 command，都當沒回；insert 空字＝只有贅字不用寫', () => {
+test('AI 回的 JSON：格式不對、改寫選取卻給空字、沒開指令模式卻回 command，都當沒回；insert 空字＝只有語氣詞不用寫', () => {
   assert.deepEqual(parseResult('{"mode":"insert","text":"好"}'), { mode: 'insert', text: '好' });
   assert.deepEqual(parseResult('前言 {"mode":"delete_last","text":"x"} 後記'), { mode: 'delete_last', text: '' });
   assert.deepEqual(parseResult('{"mode":"insert","text":""}'), { mode: 'insert', text: '' });

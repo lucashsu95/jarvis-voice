@@ -74,7 +74,7 @@ export function createLocalEngine({ model, language = 'auto', threads = 2, onFin
         onFinal(text ?? '');
       }
     } catch (err) {
-      log('本機辨識失敗', err.message);
+      log('本機辨識失敗，這句沒寫：', err.message);
       onError(`本機辨識失敗：${err.message}`);
     } finally {
       decoding = false;
@@ -88,10 +88,14 @@ export function createLocalEngine({ model, language = 'auto', threads = 2, onFin
       chunks = [];
       bytes = 0;
       if (!recognizer) {
+        log(`本機模型沒載入，這句沒寫${failed ? `：${failed}` : ''}`);
         if (failed) onError(failed);
         return;
       }
-      if (whole.length < 3200) return; // 不到 0.07 秒，當雜音
+      if (whole.length < 3200) { // 不到 0.07 秒，當雜音
+        log(`這句只有 ${(whole.length / 48000).toFixed(2)} 秒，當雜音沒送辨識`);
+        return;
+      }
       queue.push(to16k(whole));
       void drain();
     },

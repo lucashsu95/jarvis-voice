@@ -172,6 +172,26 @@ test('OpenAI 一般轉寫：伺服器錯誤重試一次；key 錯不重試、直
   }
 });
 
+test('OpenAI 一般轉寫：轉出空字串也照順序交出去（listen 會記「轉寫結果：（空的）」）、太短的記一行 log', async () => {
+  const server = await fakeTranscriptions((call, n) => ({ body: { text: n === 1 ? '' : '第二句' } }));
+  try {
+    const finals = [];
+    const logs = [];
+    const engine = createBatchEngine({ apiKey: 'sk-test', onFinal: (t) => finals.push(t), onError: () => {}, log: (m) => logs.push(m) });
+    engine.append(speech(0.05, 1));
+    engine.commit();
+    engine.append(speech(0.5, 1));
+    engine.commit();
+    engine.append(speech(0.5, 2));
+    engine.commit();
+    await waitFor(() => finals.length === 2);
+    assert.deepEqual(finals, ['', '第二句']);
+    assert.ok(logs.some((m) => /這句只有 0\.05 秒，當雜音沒送轉寫/.test(m)), logs.join('\n'));
+  } finally {
+    server.close();
+  }
+});
+
 test('OpenAI 直連：帶自己的 key、先送 session 設定，再送音訊與 commit，收到定稿', async () => {
   const wss = new WebSocketServer({ port: 0 });
   const seen = { auth: '', first: null, appends: 0 };
