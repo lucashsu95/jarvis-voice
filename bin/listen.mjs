@@ -22,7 +22,7 @@ import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSyn
 import { join } from 'node:path';
 import { createAx } from './ax.mjs';
 import { runCommand } from './commander.mjs';
-import { TurnSplitter, BATCH_BYTES, SAMPLE_RATE, findFfmpeg } from './common.mjs';
+import { TurnSplitter, BATCH_BYTES, SAMPLE_RATE, findFfmpeg, parseFrontAppInfo } from './common.mjs';
 import { STATE_DIR, aiKey, appAllowed, configMtime, isLiveModel, loadConfig, styleFor } from './config.mjs';
 import { DEFAULT_MODELS, PROVIDER_NAMES, editSegment } from './editor.mjs';
 import { createBatchEngine } from './engines/batch.mjs';
@@ -215,10 +215,7 @@ async function frontApp() {
   const asn = (await exec('/usr/bin/lsappinfo', ['front'])).trim();
   if (!asn) return { bundle: '', pid: 0 };
   const info = await exec('/usr/bin/lsappinfo', ['info', '-only', 'bundleid', '-only', 'pid', asn]);
-  return {
-    bundle: info.match(/"CFBundleIdentifier"="([^"]*)"/)?.[1] ?? '',
-    pid: Number(info.match(/"pid"=(\d+)/)?.[1] ?? 0),
-  };
+  return parseFrontAppInfo(info);
 }
 
 // 這個 app 在最前面時要不要收音（VOICE_DICTATION_APPS 給測試用：只認這些）

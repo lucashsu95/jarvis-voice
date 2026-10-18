@@ -14,4 +14,12 @@ export function findFfmpeg() {
 }
 
 // 本機斷句在核心（core/turns.mjs），跟平行沙盒 app 同一套。
+// lsappinfo 的輸出欄位名在 macOS 27 改過（"CFBundleIdentifier"= → bundleID=），兩種都認
+export function parseFrontAppInfo(info) {
+  return {
+    bundle: info.match(/"CFBundleIdentifier"="([^"]*)"/)?.[1] ?? info.match(/\bbundleID="([^"]*)"/)?.[1] ?? '',
+    pid: Number(info.match(/"pid"=(\d+)/)?.[1] ?? info.match(/\bpid[=:]\s*(\d+)/i)?.[1] ?? 0),
+  };
+}
+
 export { AudioTurnDetector, TurnSplitter } from '../core/turns.mjs';

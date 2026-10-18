@@ -19,7 +19,13 @@ const { charErrorRate, phantomTerms, normalize } = await import('../bin/vocab-te
 const { createBatchEngine, wavFromPcm16 } = await import('../bin/engines/batch.mjs');
 const { createRealtimeEngine, openaiConnector } = await import('../bin/engines/realtime.mjs');
 const { createLocalEngine } = await import('../bin/engines/local.mjs');
-const { findFfmpeg } = await import('../bin/common.mjs');
+const { findFfmpeg, parseFrontAppInfo } = await import('../bin/common.mjs');
+
+test('frontApp：lsappinfo 的舊格式（CFBundleIdentifier）和 macOS 27 新格式（bundleID）都要抓得出', () => {
+  assert.deepEqual(parseFrontAppInfo('"CFBundleIdentifier"="com.google.Chrome"\n"pid"=1234'), { bundle: 'com.google.Chrome', pid: 1234 });
+  assert.deepEqual(parseFrontAppInfo('bundleID="com.mitchellh.ghostty"\npid=5678'), { bundle: 'com.mitchellh.ghostty', pid: 5678 });
+  assert.deepEqual(parseFrontAppInfo(''), { bundle: '', pid: 0 });
+});
 
 test('簡體轉台灣正體、固定替換、平行沙盒已轉好的不再轉', () => {
   assert.equal(finishText('帮我看一下部署表，顺便把测试跑完。'), '幫我看一下部署表，順便把測試跑完。');
