@@ -8,6 +8,7 @@
 // 只用 WebSocket、setTimeout、btoa、crypto.randomUUID：瀏覽器和 Node 都有，不用 node: 模組。
 
 import { TurnSplitter } from './turns.mjs';
+import { joinPolished } from './dictation.mjs';
 
 export const MAX_RECONNECTS = 4;
 const OPEN_TIMEOUT_MS = 10_000;
@@ -83,10 +84,11 @@ export function createTranscriber({
     log(`[transcription] ${message} ${socketState()}${extra ? ` ${extra}` : ''}`);
   };
 
+  // 句子照講的順序接起來：中文接中文直接接，英文、數字與中文交界才空一格（跟整理後寫回輸入框同一套，joinPolished）
   const transcript = () => order
     .map((id) => { const part = parts.get(id); return part?.final ?? part?.draft ?? ''; })
-    .filter(Boolean)
-    .join(' ');
+    .filter((text) => text.trim())
+    .reduce((joined, text) => joinPolished(joined, text), '');
 
   const ensurePart = (id) => {
     let part = parts.get(id);

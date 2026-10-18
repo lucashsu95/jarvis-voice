@@ -225,8 +225,27 @@ test('即時轉寫：講話中是 hearing，句子送出還沒回字是 recogniz
   assert.equal(activity.at(-1), 'recognizing');
   socket.emit({ type: 'input_audio_buffer.committed', item_id: 'two' });
   socket.emit({ type: 'conversation.item.input_audio_transcription.completed', item_id: 'two', transcript: '第二句' });
-  assert.equal(await done, '第一句 第二句');
+  // 中文句子接起來不多空格
+  assert.equal(await done, '第一句第二句');
   assert.equal(activity.at(-1), 'idle');
+});
+
+test('即時轉寫：句子接起來時中文直接接，英文與中文交界空一格', async () => {
+  const transcripts = [];
+  const { session, speak } = startSpeech(async () => 'wss://transcribe', { onTranscript: (t) => transcripts.push(t) });
+  await tick();
+  const socket = FakeSocket.all[0];
+  socket.open();
+  for (const [id, text] of [['a', '帶筆電。'], ['b', '這個問題是 deploy'], ['c', '之後才出現的']]) {
+    speak(5);
+    const boundary = session.checkpoint();
+    await tick();
+    socket.emit({ type: 'input_audio_buffer.committed', item_id: id });
+    socket.emit({ type: 'conversation.item.input_audio_transcription.completed', item_id: id, transcript: text });
+    await boundary;
+  }
+  assert.equal(transcripts.at(-1), '帶筆電。這個問題是 deploy 之後才出現的');
+  session.close();
 });
 
 test('即時轉寫：連不上就重試，連續失敗才放棄，而且只報一次', async () => {
