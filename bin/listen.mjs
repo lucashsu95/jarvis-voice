@@ -507,7 +507,8 @@ async function judgeInField(raw, front, ctx) {
 // AI 整理。是不是指令：
 //   游標不在輸入框：照 AI 整理的判斷（實測只用 AI 40/40；再要 Jev 也同意，反而會擋掉「傳訊息給某人」）；
 //   游標在輸入框：開了指令模式而且有 Jev，同時問 Jev（不多花時間），Jev 看了畫面很確定是要操作畫面才算
-//   （這時再請 AI 拆出目標和要搜尋的字）；沒有 Jev 就照 AI 整理的判斷（只有開頭講「指令」或傳訊息才算）。
+//   （這時再請 AI 拆出目標和要搜尋的字）；AI 說是指令但 Jev 說不是就當成打字，傳訊息給某人除外。
+//   沒有 Jev 就照 AI 整理的判斷（只有開頭講「指令」或傳訊息才算）。
 // 對照：cubelv_docs/分析/2026-10-18_JarvisVoice_Jev必要性.md
 async function aiEdit(raw, front, ctx) {
   if (!aiReady()) return null;
@@ -529,8 +530,9 @@ async function aiEdit(raw, front, ctx) {
     const jevNote = verdict ? `；Jev：是指令的機率 ${verdict.command.toFixed(2)}${verdict.named ? `，講到「${verdict.named.label}」` : ''}` : '';
     log(`AI 整理（${result.model}，${result.ms} ms，${result.mode}）：${result.mode === 'command' ? result.goal : result.text || '（無）'}${jevNote}`);
     if (result.keptRaw) log('AI 把不只語氣詞的話整理成空的：照原稿寫');
-    // 游標在輸入框：AI 說是指令、Jev 看了畫面說不是，當成要打的字（開頭講「指令」或「command」的照 AI）
-    if (result.mode === 'command' && verdict && !verdict.isCommand && !/^\s*(指令|command)/i.test(raw)) {
+    // 游標在輸入框：AI 說是指令、Jev 看了畫面說不是，當成要打的字。開頭講「指令」或「command」、
+    // 傳訊息給某人（AI 拆出了要寫的訊息）照 AI：Jev 只看畫面上的按鈕，傳訊息的對象不在畫面上，實測 8 次都被擋掉
+    if (result.mode === 'command' && verdict && !verdict.isCommand && !/^\s*(指令|command)/i.test(raw) && !result.message?.trim()) {
       log('AI 說是指令、Jev 說不是：當成要打的字，貼原稿');
       return null;
     }
