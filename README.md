@@ -40,7 +40,7 @@ The `openai` engine needs an OpenAI key. Let your AI set it up in step 2 (you pa
 
 **Step 2: ask your AI to set it up**
 
-Everyone has their own product names, acronyms and in-house jargon, and those are the words speech recognition gets wrong most. AI cleanup, auto-focus and voice commands also need an AI provider and a key. Open the AI you use (Claude Code, Codex, ChatGPT, …) and paste this:
+Everyone has their own product names, acronyms and in-house jargon, and those are the words speech recognition gets wrong most. AI cleanup, auto-focus and voice commands also need an AI provider and a key. Open an AI that can read files and run commands on your Mac (Claude Code, Codex and the like; ChatGPT on the web can't) and paste this (or edit the config file yourself, see "Config file" below):
 
 > Please follow ~/jarvis-voice/AI_SETUP.md to set up JarvisVoice for me: fill in my vocabulary and run the tests, and ask me whether I want AI cleanup, auto-focus and voice commands; if I do, set them up and check that they work.
 

@@ -2,7 +2,7 @@
 
 > For AI assistants: this guide is written in Traditional Chinese. Follow it as written, and talk to the user in the user's own language.
 
-你是使用者的 AI 助理（Claude Code、Codex、ChatGPT 或其他都可以）。使用者已經裝好並開著「JarvisVoice」小程式，要你幫他設定。分兩部分，照順序做，做完回報結果：
+你是使用者的 AI 助理（要能在使用者的 Mac 上讀寫檔案、跑終端機指令，例如 Claude Code、Codex）。使用者已經裝好並開著「JarvisVoice」小程式，要你幫他設定。分兩部分，照順序做，做完回報結果：
 
 - **第一部分：專有名詞**（一定要做）。把**他自己常講的專有名詞**寫進詞彙表，再實際測試，讓轉出來的字更準。
 - **第二部分：AI 整理、自動找輸入框、語音指令**（先問他要不要）。選 AI（OpenAI、DeepSeek、Claude）、放 key、打開開關、跑檢查。
