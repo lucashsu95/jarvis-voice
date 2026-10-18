@@ -125,6 +125,8 @@ const aiSettings = () => ({
   model: config.ai.models[config.ai.provider] || '',
   apiKey: aiKey(config),
   timeoutMs: config.ai.timeoutMs,
+  baseUrl: config.ai.baseUrls[config.ai.provider],
+  extraBody: config.ai.extraBody,
 });
 
 function announceSettings() {

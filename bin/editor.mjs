@@ -14,9 +14,10 @@ const envUrls = () => Object.fromEntries(Object.entries({
   jev: process.env.VOICE_DICTATION_JEV_URL,
 }).filter(([, v]) => v));
 
-// 自己的 key 的服務：{ model, complete, jev }
-export function service({ provider = 'openai', model, apiKey, timeoutMs, jevKey, jevModel } = {}) {
-  return ownKeyService({ provider, model, apiKey, timeoutMs, jevKey, jevModel, urls: envUrls() });
+// 自己的 key 的服務：{ model, complete, jev }；baseUrl／extraBody 是 openai-compatible（vLLM）用
+export function service({ provider = 'openai', model, apiKey, timeoutMs, jevKey, jevModel, baseUrl, extraBody } = {}) {
+  const urls = { ...envUrls(), ...(baseUrl ? { [provider]: baseUrl } : {}) };
+  return ownKeyService({ provider, model, apiKey, timeoutMs, jevKey, jevModel, urls, extraBody });
 }
 
 function check(provider, apiKey, what) {
@@ -25,14 +26,14 @@ function check(provider, apiKey, what) {
 }
 
 // 通用：照 system／user 問一次，回模型吐的字（要 JSON 的話自己 parse）
-export async function ask({ provider = 'openai', model, apiKey, timeoutMs = 6000, system, user, schema = null }) {
+export async function ask({ provider = 'openai', model, apiKey, timeoutMs = 6000, system, user, schema = null, baseUrl, extraBody }) {
   check(provider, apiKey, 'AI ');
-  return service({ provider, model, apiKey, timeoutMs }).complete({ system, user, schema });
+  return service({ provider, model, apiKey, timeoutMs, baseUrl, extraBody }).complete({ system, user, schema });
 }
 
 // 回傳 { mode, text, ms, model }；失敗丟錯，呼叫端改貼原稿
-export async function editSegment({ provider = 'openai', model, apiKey, timeoutMs = 6000, ...input }) {
+export async function editSegment({ provider = 'openai', model, apiKey, timeoutMs = 6000, baseUrl, extraBody, ...input }) {
   check(provider, apiKey, 'AI 編輯');
-  const svc = service({ provider, model, apiKey, timeoutMs });
+  const svc = service({ provider, model, apiKey, timeoutMs, baseUrl, extraBody });
   return { ...(await coreEditSegment({ complete: svc.complete, ...input })), model: svc.model };
 }

@@ -1,9 +1,9 @@
 // JarvisVoice 核心：「自己的 key」直接打各家模型與 TypeSafe Jev（用 fetch，Node 18+ 和瀏覽器都能跑）。
 // CubeLV、平行沙盒不用這個，改接自己的後端（扣點數、平台吸收）。
 
-export const PROVIDERS = ['openai', 'deepseek', 'claude'];
-export const DEFAULT_MODELS = { openai: 'gpt-6-luna', deepseek: 'deepseek-flash', claude: 'claude-haiku-5-5' };
-export const PROVIDER_NAMES = { openai: 'OpenAI', deepseek: 'DeepSeek', claude: 'Claude' };
+export const PROVIDERS = ['openai', 'deepseek', 'claude', 'openai-compatible'];
+export const DEFAULT_MODELS = { openai: 'gpt-6-luna', deepseek: 'deepseek-flash', claude: 'claude-haiku-5-5', 'openai-compatible': '' };
+export const PROVIDER_NAMES = { openai: 'OpenAI', deepseek: 'DeepSeek', claude: 'Claude', 'openai-compatible': 'OpenAI 相容（vLLM）' };
 export const DEFAULT_URLS = {
   openai: 'https://api.openai.com/v1/chat/completions',
   deepseek: 'https://api.deepseek.com/chat/completions',
@@ -22,8 +22,9 @@ const errorMessage = (name, status, detail) => `${name} AI 編輯失敗（HTTP $
 
 // OpenAI 與 DeepSeek 都是 chat completions 格式
 // schema 給 null 就只要求是 JSON（欄位靠提示）
-async function callChat({ provider, apiKey, model, system, user, signal, schema = null, url }) {
+async function callChat({ provider, apiKey, model, system, user, signal, schema = null, url, extraBody = {} }) {
   const openai = provider === 'openai';
+  const compat = provider === 'openai-compatible';
   const res = await fetch(url, {
     method: 'POST',
     headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
@@ -35,8 +36,12 @@ async function callChat({ provider, apiKey, model, system, user, signal, schema 
           response_format: schema ? { type: 'json_schema', json_schema: { name: 'result', strict: true, schema } } : { type: 'json_object' },
           ...reasoningOff(model),
         }
-        // DeepSeek 預設會先推理，關掉才快；JSON 模式只保證是 JSON，欄位靠提示
-        : { response_format: { type: 'json_object' }, thinking: { type: 'disabled' }, max_tokens: 2048 }),
+        // vLLM 這類 OpenAI 相容：不用 strict json_schema（很多版本不支援），回傳靠 parseResult 抓 JSON；
+        // 預設上限防思考模式失控，extraBody 放最後可蓋掉（含換 response_format）
+        : compat
+          ? { response_format: { type: 'json_object' }, max_tokens: 2048, ...extraBody }
+          // DeepSeek 預設會先推理，關掉才快；JSON 模式只保證是 JSON，欄位靠提示
+          : { response_format: { type: 'json_object' }, thinking: { type: 'disabled' }, max_tokens: 2048 }),
     }),
     signal,
   });
@@ -79,16 +84,19 @@ async function askJev({ apiKey, model = 'jev-latest', state, questions, timeoutM
 }
 
 // 自己的 key 的服務：{ complete, jev }。provider 是 openai／deepseek／claude；沒有 jevKey 就沒有 jev（決策改問 complete）
-export function ownKeyService({ provider = 'openai', model = '', apiKey = '', jevKey = '', jevModel = 'jev-latest', timeoutMs = 6000, urls = {} } = {}) {
+export function ownKeyService({ provider = 'openai', model = '', apiKey = '', jevKey = '', jevModel = 'jev-latest', timeoutMs = 6000, urls = {}, extraBody = {} } = {}) {
   if (!PROVIDERS.includes(provider)) throw new Error(`ai.provider 只能是 ${PROVIDERS.join('、')}`);
   const u = { ...DEFAULT_URLS, ...urls };
+  if (provider === 'openai-compatible' && !u['openai-compatible']) {
+    throw new Error('openai-compatible 要在設定檔 ai.baseUrls["openai-compatible"] 寫 chat/completions 的完整網址');
+  }
   const chosen = model || DEFAULT_MODELS[provider];
   return {
     model: chosen,
     complete: apiKey ? async ({ system, user, schema = null, timeoutMs: t = timeoutMs }) => {
       const signal = AbortSignal.timeout(t);
       if (provider === 'claude') return callClaude({ apiKey, model: chosen, system, user, signal, url: u.claude });
-      return callChat({ provider, apiKey, model: chosen, system, user, schema, signal, url: u[provider] });
+      return callChat({ provider, apiKey, model: chosen, system, user, schema, signal, url: u[provider], extraBody });
     } : null,
     jev: jevKey ? ({ state, questions }) => askJev({ apiKey: jevKey, model: jevModel, state, questions, url: u.jev }) : null,
   };

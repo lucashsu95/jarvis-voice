@@ -22,7 +22,9 @@ if (!key) {
   const sample = '嗯那個我們明天三點開會，不對，四點開會，然後記得帶那個筆電';
   try {
     const r = await editSegment({
-      provider, model, apiKey: key, timeoutMs: 15_000, transcript: sample,
+      provider, model, apiKey: key, timeoutMs: 15_000,
+      baseUrl: config.ai.baseUrls[provider], extraBody: config.ai.extraBody,
+      transcript: sample,
       context: { app: 'Slack', field: { role: 'AXTextArea', label: '訊息' } }, vocabulary: config.openai.keywords,
     });
     console.log(`整理測試（${r.ms} ms）：「${sample}」→「${r.text}」`);
@@ -35,7 +37,7 @@ console.log(`自動找輸入框：${config.autoFocus ? '開' : '關'}；語音�
 if (config.autoFocus || config.commands) {
   const decider = createDecider(() => ({
     jevKey: config.jev.apiKey, jevModel: config.jev.model,
-    ai: key ? { provider, model: config.ai.models[provider] || '', apiKey: key } : null,
+    ai: key ? { provider, model: config.ai.models[provider] || '', apiKey: key, baseUrl: config.ai.baseUrls[provider], extraBody: config.ai.extraBody } : null,
   }));
   if (!decider.available()) {
     fail('第三層沒有決策器：要有 Jev key（jev.apiKey／apiKeyFile／apiKeyCommand），或 AI 整理那家的 key');

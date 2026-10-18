@@ -16,10 +16,17 @@
 //   "parallelsandbox": { "apiKey": "", "apiUrl": "https://api.parallelsandbox.com" },
 //   "ai": {                            // AI 整理（Typeless 的做法）：一段話講完，帶上下文交給 AI 整理再貼
 //     "enabled": true,                 // 三層預設都開；沒有 AI 的 key 時只跑第一層
-//     "provider": "deepseek",          // openai | deepseek | claude；沒寫就用已經有 key 的那家（DeepSeek → Claude → OpenAI）
-//     "models": {},                    // 換模型：{ "openai": "gpt-6-luna", "deepseek": "deepseek-flash", "claude": "claude-haiku-5-5" }
+//     "provider": "deepseek",          // openai | deepseek | claude | openai-compatible；沒寫就用已經有 key 的那家（DeepSeek → Claude → OpenAI）
+//     "models": {},                    // 換模型：{ "openai": "gpt-6-luna", "deepseek": "deepseek-flash", "claude": "claude-haiku-5-5", "openai-compatible": "BIRC-LLM" }
 //     "keys": {}, "keyFiles": {},      // 各家的 key，或放 key 的檔案（純 key 或 .env）；沒寫就看環境變數，OpenAI 沿用 openai 的 key
 //     "keyCommands": {},               // 或用指令拿 key，key 不落地：{ "deepseek": "aws ssm get-parameter ... --output text" }
+//     "baseUrls": {},                  // 換 endpoint：openai-compatible（vLLM 等）必填 chat/completions 的完整網址
+//                                       // 例：{ "openai-compatible": "https://chatapi.xxx.tw/v1/chat/completions" }
+//     "extraBody": {},                 // openai-compatible 額外併進請求體的參數；vLLM 的思考模式在這裡關
+//                                       // 例（Qwen3 系）：{ "chat_template_kwargs": { "enable_thinking": false } }
+//                                       // 併進時會蓋掉預設（response_format、max_tokens）；某些 vLLM 建法不支援 json_object，
+//                                       // 在這裡放 "response_format": {"type":"text"} 就關掉
+//     // vLLM 沒開 auth 時 key 隨便填一個字串（例如 ai.keys 的 "openai-compatible": "sk-local"），只是程式要求非空
 //     "segmentPauseMs": 1800,          // 停多久算一段講完
 //     "contextChars": 400,             // 游標前後各讀幾個字給 AI
 //     "screenChars": 1500,             // 視窗裡看得到的字（不含輸入框）讀最後幾個字給 AI
@@ -45,8 +52,8 @@ export const STATE_DIR = process.env.VOICE_DICTATION_STATE_DIR || join(homedir()
 export const CONFIG_PATH = process.env.VOICE_DICTATION_CONFIG || join(STATE_DIR, 'config.json');
 export const DEFAULT_MODEL = 'sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17';
 export const ENGINES = ['local', 'openai', 'parallelsandbox'];
-export const AI_PROVIDERS = ['openai', 'deepseek', 'claude'];
-const KEY_VARS = { openai: 'OPENAI_API_KEY', deepseek: 'DEEPSEEK_API_KEY', claude: 'ANTHROPIC_API_KEY' };
+export const AI_PROVIDERS = ['openai', 'deepseek', 'claude', 'openai-compatible'];
+const KEY_VARS = { openai: 'OPENAI_API_KEY', deepseek: 'DEEPSEEK_API_KEY', claude: 'ANTHROPIC_API_KEY', 'openai-compatible': 'OPENAI_COMPATIBLE_API_KEY' };
 
 // 各類 app 的語氣：bundle id 或網域都可以當 key
 const CHAT = '聊天訊息：口語、簡短自然，不用太正式';
@@ -82,7 +89,7 @@ export function defaults() {
     },
     parallelsandbox: { apiKey: '', apiUrl: 'https://api.parallelsandbox.com' },
     ai: {
-      enabled: true, provider: 'deepseek', models: {}, keys: {}, keyFiles: {}, keyCommands: {},
+      enabled: true, provider: 'deepseek', models: {}, keys: {}, keyFiles: {}, keyCommands: {}, baseUrls: {}, extraBody: {},
       segmentPauseMs: 1800, contextChars: 400, screenChars: 1500, timeoutMs: 6000, styles: {},
       history: true, learn: true,
       autoVocabulary: { enabled: true, max: 250, maxAuto: 80, minSightings: 3 },
@@ -230,11 +237,21 @@ export function loadConfig() {
     error = `ai.provider 只能是 ${AI_PROVIDERS.join('、')}，設定檔寫的是「${config.ai.provider}」`;
     config.ai.provider = base.ai.provider;
   }
-  for (const key of ['models', 'keys', 'keyFiles', 'keyCommands', 'styles']) if (typeof config.ai[key] !== 'object' || !config.ai[key]) config.ai[key] = {};
+  for (const key of ['models', 'keys', 'keyFiles', 'keyCommands', 'styles', 'baseUrls', 'extraBody']) if (typeof config.ai[key] !== 'object' || !config.ai[key]) config.ai[key] = {};
+  if (config.ai.provider === 'openai-compatible') {
+    if (!config.ai.baseUrls['openai-compatible']) {
+      error = `openai-compatible 要寫 ai.baseUrls["openai-compatible"]（chat/completions 的完整網址）`;
+      config.ai.provider = base.ai.provider; // 照預設跑，別讓每段都失敗
+    } else if (!config.ai.models['openai-compatible']) {
+      error = `openai-compatible 要寫 ai.models["openai-compatible"]（模型名，例如 BIRC-LLM）`;
+      config.ai.provider = base.ai.provider;
+    }
+  }
   config.autoFocus = config.autoFocus !== false;
   config.commands = config.commands !== false;
-  // 沒指定 AI 用哪家：挑已經有 key 的
-  if (!file.ai?.provider) config.ai.provider = ['deepseek', 'claude', 'openai'].find((p) => aiKey(config, p)) ?? base.ai.provider;
+  // 沒指定 AI 用哪家：挑已經有 key 的；openai-compatible 要連 baseUrls 都設了才算
+  const candidates = config.ai.baseUrls['openai-compatible'] ? ['deepseek', 'claude', 'openai', 'openai-compatible'] : ['deepseek', 'claude', 'openai'];
+  if (!file.ai?.provider) config.ai.provider = candidates.find((p) => aiKey(config, p)) ?? base.ai.provider;
   config.jev.apiKey = config.jev.apiKey || keyFromFile(config.jev.apiKeyFile, 'TYPESAFE_API_KEY') || keyFromCommand(config.jev.apiKeyCommand)
     || process.env.TYPESAFE_API_KEY || '';
   const ps = parallelSandboxFromClaudeJson();

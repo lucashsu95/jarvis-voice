@@ -172,6 +172,6 @@ export const PROVIDERS: string[];
 export const DEFAULT_MODELS: Record<string, string>;
 export const PROVIDER_NAMES: Record<string, string>;
 export const DEFAULT_URLS: Record<string, string>;
-export function ownKeyService(input: { provider?: string; model?: string; apiKey?: string; jevKey?: string; jevModel?: string; timeoutMs?: number; urls?: Record<string, string> }):
+export function ownKeyService(input: { provider?: string; model?: string; apiKey?: string; jevKey?: string; jevModel?: string; timeoutMs?: number; urls?: Record<string, string>; extraBody?: Record<string, unknown> }):
   { model: string; complete: Complete | null; jev: Jev | null };
 export const CORE_VERSION: string;

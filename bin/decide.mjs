@@ -9,7 +9,12 @@ export * from '../core/decide.mjs';
 export function createDecider(settings) {
   return coreCreateDecider(() => {
     const s = settings();
-    const svc = service({ ...(s.ai ?? {}), jevKey: s.jevKey, jevModel: s.jevModel });
+    let svc;
+    try {
+      svc = service({ ...(s.ai ?? {}), jevKey: s.jevKey, jevModel: s.jevModel });
+    } catch {
+      return { jev: null, complete: null }; // 設定有問題（例：compat 沒 baseUrl）＝沒有決策器，照規則跑，不能把整段話丟掉
+    }
     return { jev: svc.jev, complete: s.ai?.apiKey ? svc.complete : null };
   });
 }
