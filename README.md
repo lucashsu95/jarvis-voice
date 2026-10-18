@@ -56,7 +56,7 @@ The AI will:
   - Check mark: just pasted.
   - Cross: nothing was written (the cursor wasn't in a text field and no field was found), or a voice command didn't finish.
   - Faded bars: standing by (the frontmost app is excluded).
-  - ‖: paused.
+  - A microphone with a slash through it (like a "no" sign): paused, not listening.
   - Exclamation mark: something went wrong; open the menu to see why.
 - **When the cursor isn't in a text field** (you're reading a web page, selecting files in Finder): with auto-focus off, nothing is written, the icon briefly shows a cross, and "Copy last sentence" in the menu gets the text back; with auto-focus on, it picks the right field in the window and writes there.
 - **Meetings**: it doesn't listen while Zoom, Teams, FaceTime or Webex is frontmost. If people are talking nearby or a video is playing, choose "Pause listening" in the menu.

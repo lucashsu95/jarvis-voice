@@ -77,6 +77,28 @@ function iconStroke(points, width = 1.5) {
   p.stroke;
 }
 
+// 暫停：外圈裡一支麥克風，一條斜線從外圈一邊連到另一邊（像「禁止」標誌），跟「在聽」的聲波一眼分得出來。
+// 斜線兩旁先把麥克風挖空一點，線才不會黏在麥克風上
+function drawMutedMic() {
+  $.NSColor.blackColor.set;
+  $.NSBezierPath.bezierPathWithRoundedRectXRadiusYRadius($.NSMakeRect(7.5, 8.9, 3, 4.9), 1.5, 1.5).fill;
+  const holder = $.NSBezierPath.bezierPath;
+  holder.appendBezierPathWithArcWithCenterRadiusStartAngleEndAngleClockwise($.NSMakePoint(9, 10.7), 3.1, 200, 340, false);
+  holder.setLineWidth(1.25);
+  holder.setLineCapStyle(1);
+  holder.stroke;
+  iconStroke([[9, 7.6], [9, 5.7]], 1.25);
+  const d = 7.2 / Math.SQRT2; // 斜線兩端壓進外圈，不留細縫
+  const gap = iconPath([[9 - 4.2, 9 + 4.2], [9 + 4.2, 9 - 4.2]]);
+  gap.setLineWidth(3.05);
+  $.NSGraphicsContext.currentContext.setCompositingOperation(0); // NSCompositingOperationClear
+  gap.stroke;
+  $.NSGraphicsContext.currentContext.setCompositingOperation(2); // NSCompositingOperationSourceOver
+  const slash = iconPath([[9 - d, 9 + d], [9 + d, 9 - d]]);
+  slash.setLineWidth(1.25);
+  slash.stroke;
+}
+
 // kind：listening、speaking、standby、paused、pasted、nofield、error
 function drawGlyph(kind) {
   $.NSColor.blackColor.set;
@@ -98,7 +120,7 @@ function drawGlyph(kind) {
   tip.fill;
   if (kind === 'speaking') [[6.6, 3.8], [9, 7.2], [11.4, 4.8]].forEach(([x, h]) => iconBar(x, h));
   else if (kind === 'standby') [[6.6, 2.6], [9, 5.2], [11.4, 3.2]].forEach(([x, h]) => iconBar(x, h, 0.35));
-  else if (kind === 'paused') { iconBar(7.4, 5.4); iconBar(10.6, 5.4); }
+  else if (kind === 'paused') drawMutedMic();
   else if (kind === 'pasted') iconStroke([[6.3, 9.1], [8.3, 7.1], [11.9, 10.9]], 1.6);
   else if (kind === 'nofield') { iconStroke([[6.9, 11.1], [11.1, 6.9]]); iconStroke([[6.9, 6.9], [11.1, 11.1]]); }
   else if (kind === 'error') {
