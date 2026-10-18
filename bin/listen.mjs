@@ -29,6 +29,7 @@ import { createBatchEngine } from './engines/batch.mjs';
 import { createLocalEngine } from './engines/local.mjs';
 import { createRealtimeEngine, openaiConnector, parallelSandboxConnector } from './engines/realtime.mjs';
 import { appendHistory } from './history.mjs';
+import { aiLog } from './ai-log.mjs';
 import { createDecider, describeElement, fieldQuestions, inFieldIntentQuestion, inFieldVerdict, intentQuestion, referenceQuestion } from './decide.mjs';
 import { createLearner } from './learn.mjs';
 import { createVocabAuto } from './vocab-auto.mjs';
@@ -419,6 +420,8 @@ const learner = createLearner({
   log,
   settings: () => ({ enabled: aiReady() && config.ai.learn, ai: aiSettings(), vocabularyFile: config.openai.vocabularyFile }),
   promote: (term, source) => vocab.promote(term, source),
+  // 你改字＝最貴的標註：ai（AI 版）vs final（你的版）記進 ai-log，之後練 BIRC-LLM 用
+  onCorrection: (c) => aiLog({ type: 'correction', ...c }),
 });
 
 const writeLast = (text) => { try { writeFileSync(LAST, text); } catch { /* 選單「複製上一句」拿不到而已 */ } };
@@ -696,7 +699,9 @@ async function deliver(item, front) {
   if (aiReady()) void vocab.afterSegment({ screen: ctx?.screen ?? '', text: result ? result.text : raw });
   // AI 整理後貼的，盯一下使用者有沒有自己改專有名詞
   if (result?.mode === 'insert' && pasted.handle && ctx?.field && !ctx.field.selected) {
-    learner.watch({ handle: pasted.handle, inserted: text, before: ctx.field.before ?? '', after: ctx.field.after ?? '' });
+    // raw／app／window／cleaned 跟著 correction 記錄走：ai-log 的改字筆不用靠時間去對 ai-call
+    learner.watch({ handle: pasted.handle, inserted: text, before: ctx.field.before ?? '', after: ctx.field.after ?? '',
+      raw, app: ctx?.app ?? '', window: ctx?.window ?? '', cleaned: !result.keptRaw && result.text !== raw });
   }
   return '';
 }

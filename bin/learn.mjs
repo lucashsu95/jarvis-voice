@@ -6,7 +6,8 @@ import { ask } from './editor.mjs';
 export { extractEdited, replacedChunks } from '../core/learn.mjs';
 
 // settings() → { enabled, ai }；promote(詞, 'edit') 交給詞彙表自動更新
-export function createLearner({ ax, log, settings, promote }) {
+// onCorrection({ ai, final, chunks })：使用者改字時記一筆（ai-log，練 BIRC-LLM 用）
+export function createLearner({ ax, log, settings, promote, onCorrection }) {
   return coreCreateLearner({
     read: async (handle) => (await ax.call('read', { handle })).value,
     log,
@@ -15,5 +16,6 @@ export function createLearner({ ax, log, settings, promote }) {
       return { enabled: s.enabled, complete: (req) => ask({ ...s.ai, ...req }) };
     },
     promote,
+    onCorrection,
   });
 }

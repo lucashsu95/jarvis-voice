@@ -62,13 +62,17 @@ const TERMS_SCHEMA = {
 // 盯著一段剛貼的字：{ handle, inserted, before, after }。tick() 由呼叫端每半秒叫一次。
 // read(handle) → 那個輸入框現在的字（讀不到給 null）；settings() → { enabled, complete }；
 // promote(詞, 'edit')：學到的詞交給詞彙表自動更新（core/vocab.mjs）處理上限
-export function createLearner({ read, log = () => {}, settings, promote }) {
+// onCorrection({ ai, final, chunks, raw, app, window, cleaned })：使用者改字時記一筆（ai-log 用）；
+// 有沒有專有名詞、文檔多長都記（學詞才需要 chunks，1000 字以上的比對跳過但記錄照寫）。
+// raw／app／window／cleaned 由 watch() 的參數帶下來（這段話的原稿、app、視窗標題、有沒有經過 AI 整理）
+export function createLearner({ read, log = () => {}, settings, promote, onCorrection }) {
   let watch = null;
 
   async function finish(w) {
     const edited = w.latest;
     if (edited === null || edited === w.inserted) return;
     const chunks = replacedChunks(w.inserted.trim(), edited.trim());
+    onCorrection?.({ ai: w.inserted, final: edited, chunks, raw: w.raw, app: w.app, window: w.window, cleaned: w.cleaned });
     if (!chunks.length) return;
     const s = settings();
     if (!s.enabled) return;

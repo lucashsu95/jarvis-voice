@@ -1,6 +1,6 @@
 // JarvisVoice 核心的型別（給 TypeScript 專案用：CubeLV、平行沙盒）。
 
-export type Complete = (req: { system: string; user: string; schema?: object | null; timeoutMs?: number; signal?: AbortSignal }) => Promise<string>;
+export type Complete = (req: { system: string; user: string; schema?: object | null; timeoutMs?: number; signal?: AbortSignal; onMeta?: (meta: { status: number; usage: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number } | null }) => void }) => Promise<string>;
 export type Jev = (req: { state: unknown; questions: Record<string, Question> }) => Promise<Record<string, Answer>>;
 export interface Question { type: 'choice' | 'noul' | 'score'; instructions: string; criteria?: unknown }
 export interface Answer { type?: string; choice?: string; confidence?: number; noul?: number; probabilities?: Record<string, number> }
@@ -53,8 +53,9 @@ export function usable(c: ScreenElement): boolean;
 export function extractEdited(value: string | null, before?: string, after?: string): string | null;
 export function replacedChunks(a: string, b: string): { from: string; to: string }[];
 export function createLearner(input: { read: (handle: number) => Promise<string | null>; log?: (m: string) => void;
-  settings: () => { enabled: boolean; complete: Complete }; promote: (term: string, source: 'edit') => boolean }):
-  { watch(w: { handle: number; inserted: string; before: string; after: string }): void; tick(): Promise<void> };
+  settings: () => { enabled: boolean; complete: Complete }; promote: (term: string, source: 'edit') => boolean;
+  onCorrection?: (c: { ai: string; final: string; chunks: { from: string; to: string }[]; raw?: string; app?: string; window?: string; cleaned?: boolean }) => void }):
+  { watch(w: { handle: number; inserted: string; before: string; after: string; raw?: string; app?: string; window?: string; cleaned?: boolean }): void; tick(): Promise<void> };
 
 export const AUTO_HEADER: string;
 export function splitVocabulary(text: string): { manualText: string; manual: string[]; auto: string[] };

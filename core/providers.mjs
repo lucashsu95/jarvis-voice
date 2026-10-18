@@ -22,7 +22,7 @@ const errorMessage = (name, status, detail) => `${name} AI 編輯失敗（HTTP $
 
 // OpenAI 與 DeepSeek 都是 chat completions 格式
 // schema 給 null 就只要求是 JSON（欄位靠提示）
-async function callChat({ provider, apiKey, model, system, user, signal, schema = null, url, extraBody = {} }) {
+async function callChat({ provider, apiKey, model, system, user, signal, schema = null, url, extraBody = {}, onMeta }) {
   const openai = provider === 'openai';
   const compat = provider === 'openai-compatible';
   const res = await fetch(url, {
@@ -47,10 +47,11 @@ async function callChat({ provider, apiKey, model, system, user, signal, schema 
   });
   if (!res.ok) throw new Error(errorMessage(PROVIDER_NAMES[provider], res.status, await res.text().catch(() => '')));
   const body = await res.json();
+  onMeta?.({ status: res.status, usage: body.usage ?? null });
   return body.choices?.[0]?.message?.content ?? '';
 }
 
-async function callClaude({ apiKey, model, system, user, signal, url }) {
+async function callClaude({ apiKey, model, system, user, signal, url, onMeta }) {
   const res = await fetch(url, {
     method: 'POST',
     headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'Content-Type': 'application/json' },
@@ -65,6 +66,7 @@ async function callClaude({ apiKey, model, system, user, signal, url }) {
   });
   if (!res.ok) throw new Error(errorMessage('Claude', res.status, await res.text().catch(() => '')));
   const body = await res.json();
+  onMeta?.({ status: res.status, usage: body.usage ?? null });
   return body.content?.find((part) => part.type === 'text')?.text ?? '';
 }
 
@@ -93,10 +95,10 @@ export function ownKeyService({ provider = 'openai', model = '', apiKey = '', je
   const chosen = model || DEFAULT_MODELS[provider];
   return {
     model: chosen,
-    complete: apiKey ? async ({ system, user, schema = null, timeoutMs: t = timeoutMs }) => {
+    complete: apiKey ? async ({ system, user, schema = null, timeoutMs: t = timeoutMs, onMeta }) => {
       const signal = AbortSignal.timeout(t);
-      if (provider === 'claude') return callClaude({ apiKey, model: chosen, system, user, signal, url: u.claude });
-      return callChat({ provider, apiKey, model: chosen, system, user, schema, signal, url: u[provider], extraBody });
+      if (provider === 'claude') return callClaude({ apiKey, model: chosen, system, user, signal, url: u.claude, onMeta });
+      return callChat({ provider, apiKey, model: chosen, system, user, schema, signal, url: u[provider], extraBody, onMeta });
     } : null,
     jev: jevKey ? ({ state, questions }) => askJev({ apiKey: jevKey, model: jevModel, state, questions, url: u.jev }) : null,
   };
