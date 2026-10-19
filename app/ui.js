@@ -15,7 +15,9 @@ const ZH = /^zh/i.test(LANG);
 const t = (zh, en) => (ZH ? zh : en);
 const ENGINE_NAMES = { local: t('本機', 'on-device'), openai: 'OpenAI', parallelsandbox: t('平行沙盒', 'ParallelSandbox') };
 const GUIDE_URL = 'https://github.com/urusaqqrun/jarvis-voice#readme';
-const AI_NAMES = { openai: 'OpenAI', deepseek: 'DeepSeek', claude: 'Claude' };
+const AI_NAMES = { openai: 'OpenAI', deepseek: 'DeepSeek', claude: 'Claude', 'openai-compatible': t('vLLM（OpenAI 相容）', 'vLLM (OpenAI-compatible)') };
+// ObjC selector 不能吃連字號，openai-compatible 要用專門的 selector
+const AI_ACTIONS = { openai: 'aiOpenai:', deepseek: 'aiDeepseek:', claude: 'aiClaude:', 'openai-compatible': 'aiVllm:' };
 
 let statusItem = null;
 let statusLine = null;
@@ -302,6 +304,11 @@ function updateConfig(change) {
 function chooseAi(provider) {
   updateConfig((config) => {
     config.ai = config.ai ?? {};
+    // openai-compatible 要自己填網址和模型名（ai.baseUrls／ai.models），沒填就打開設定檔给人看
+    if (provider === 'openai-compatible' && !(config.ai.baseUrls?.['openai-compatible'] && config.ai.models?.['openai-compatible'])) {
+      openInTextEdit(statePath('config.json'));
+      return;
+    }
     config.ai.enabled = !!provider;
     if (provider) config.ai.provider = provider;
   });
@@ -466,6 +473,7 @@ ObjC.registerSubclass({
     'aiOpenai:': { types: ['void', ['id']], implementation() { chooseAi('openai'); } },
     'aiDeepseek:': { types: ['void', ['id']], implementation() { chooseAi('deepseek'); } },
     'aiClaude:': { types: ['void', ['id']], implementation() { chooseAi('claude'); } },
+    'aiVllm:': { types: ['void', ['id']], implementation() { chooseAi('openai-compatible'); } },
     'toggleAutoFocus:': { types: ['void', ['id']], implementation() { toggleSetting('autoFocus'); } },
     'toggleCommands:': { types: ['void', ['id']], implementation() { toggleSetting('commands'); } },
     'revert:': { types: ['void', ['id']], implementation() { requestRevert(); } },
@@ -512,7 +520,7 @@ function startUI() {
   aiMenu.addItem(aiOffItem);
   aiMenu.addItem($.NSMenuItem.separatorItem);
   for (const [provider, name] of Object.entries(AI_NAMES)) {
-    aiItems[provider] = menuItem(name, `ai${provider[0].toUpperCase()}${provider.slice(1)}:`);
+    aiItems[provider] = menuItem(name, AI_ACTIONS[provider]);
     aiMenu.addItem(aiItems[provider]);
   }
   aiMenuItem.setSubmenu(aiMenu);
